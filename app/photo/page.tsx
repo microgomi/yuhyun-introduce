@@ -254,7 +254,7 @@ export default function PhotoPage() {
 
   const subjectsRef = useRef<Subject[]>([]);
   const animFrameRef = useRef<number>(0);
-  const gameTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const gameTimerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const areaRef = useRef<HTMLDivElement>(null);
 
   const AREA_W = 600;

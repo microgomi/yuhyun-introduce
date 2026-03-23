@@ -1545,9 +1545,9 @@ export default function PhoneMakerPage() {
                   <h3 className="text-white font-bold text-sm mb-3">평론가 리뷰</h3>
                   <div className="space-y-2 text-sm">
                     {[
-                      { name: "테크리뷰", score: Math.min(10, (scores.performance / 10).toFixed(1)), comment: scores.performance >= 80 ? "압도적인 성능!" : "무난한 성능" },
-                      { name: "카메라매니아", score: Math.min(10, (scores.camera / 10).toFixed(1)), comment: scores.camera >= 80 ? "최고의 카메라!" : "카메라는 평범" },
-                      { name: "일상유저", score: Math.min(10, (scores.value / 10).toFixed(1)), comment: scores.value >= 70 ? "가성비 갑!" : "가격이 좀..." },
+                      { name: "테크리뷰", score: Math.min(10, parseFloat((scores.performance / 10).toFixed(1))), comment: scores.performance >= 80 ? "압도적인 성능!" : "무난한 성능" },
+                      { name: "카메라매니아", score: Math.min(10, parseFloat((scores.camera / 10).toFixed(1))), comment: scores.camera >= 80 ? "최고의 카메라!" : "카메라는 평범" },
+                      { name: "일상유저", score: Math.min(10, parseFloat((scores.value / 10).toFixed(1))), comment: scores.value >= 70 ? "가성비 갑!" : "가격이 좀..." },
                     ].map((review) => (
                       <div key={review.name} className="flex items-center gap-3">
                         <span className="text-white/60 w-24">{review.name}</span>
