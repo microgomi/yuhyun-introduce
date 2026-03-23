@@ -441,8 +441,9 @@ export default function GodPage() {
     if (!civEvent) return;
     if (deal) {
       if (civEvent.bonus) {
-        setDivinePower((p) => p + civEvent.bonus);
-        setMessage(`축하합니다! +${civEvent.bonus} 신력!`);
+        const b = civEvent.bonus;
+        setDivinePower((p) => p + b);
+        setMessage(`축하합니다! +${b} 신력!`);
       } else if (divinePower >= civEvent.cost) {
         setDivinePower((p) => p - civEvent.cost);
         setMessage('위기를 극복했습니다!');
