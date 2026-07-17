@@ -123,7 +123,7 @@ interface Target {
   timeLeft: number;
 }
 
-type Screen = "main" | "tournament_list" | "tournament_play" | "training" | "shop" | "result" | "minigame";
+type Screen = "main" | "tournament_list" | "tournament_play" | "training" | "shop" | "result" | "minigame" | "tournament_game";
 
 export default function ProGamerPage() {
   const [screen, setScreen] = useState<Screen>("main");
@@ -155,6 +155,34 @@ export default function ProGamerPage() {
   const miniTimerRef = useRef<NodeJS.Timeout | null>(null);
   const targetIdRef = useRef(0);
   const spawnRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 대회 미니게임
+  const [tgScore, setTgScore] = useState(0);
+  const [tgTimeLeft, setTgTimeLeft] = useState(0);
+  const [tgActive, setTgActive] = useState(false);
+  const [tgEnemyName, setTgEnemyName] = useState("");
+  const [tgEnemyScore, setTgEnemyScore] = useState(0);
+  const tgTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const tgSpawnRef = useRef<NodeJS.Timeout | null>(null);
+  // FPS
+  const [fpsTargets, setFpsTargets] = useState<{ id: number; x: number; y: number; size: number; life: number; enemy: boolean }[]>([]);
+  // Fighting
+  const [fightSeq, setFightSeq] = useState<string[]>([]);
+  const [fightInput, setFightInput] = useState<string[]>([]);
+  const [fightRound, setFightRound] = useState(0);
+  const [fightShowSeq, setFightShowSeq] = useState(false);
+  const [fightCombo, setFightCombo] = useState(0);
+  const [fightHp, setFightHp] = useState(100);
+  const [fightEnemyHp, setFightEnemyHp] = useState(100);
+  // Rhythm
+  const [rhythmNotes, setRhythmNotes] = useState<{ id: number; lane: number; y: number; hit: boolean }[]>([]);
+  const [rhythmCombo, setRhythmCombo] = useState(0);
+  const [rhythmMaxCombo, setRhythmMaxCombo] = useState(0);
+  // MOBA / Battle Royale / RTS
+  const [brPlayerY, setBrPlayerY] = useState(50);
+  const [brObstacles, setBrObstacles] = useState<{ id: number; x: number; y: number; type: string }[]>([]);
+  const [brItems, setBrItems] = useState<{ id: number; x: number; y: number; emoji: string; points: number }[]>([]);
+  const brIdRef = useRef(0);
 
   // 플로팅
   const [floatTexts, setFloatTexts] = useState<{ id: number; text: string; x: number; y: number; color: string }[]>([]);
@@ -282,39 +310,213 @@ export default function ProGamerPage() {
     setScreen("tournament_play");
   }, [coins, totalXp]);
 
-  // 다음 라운드
+  // 대회 미니게임 시작
   const playRound = useCallback(() => {
     if (!currentTournament || isBattling) return;
-    setIsBattling(true);
+    const enemyName = getEnemyName();
+    setTgEnemyName(enemyName);
+    setTgScore(0);
+    const baseDiff = currentTournament.difficulty;
+    const enemyBase = 8 + baseDiff * 3 + currentRound * 2;
+    setTgEnemyScore(enemyBase + Math.floor(Math.random() * 6));
+    setTgActive(true);
+    const gameTime = 12 + Math.floor(totalStats.reflex / 15);
+    setTgTimeLeft(Math.min(20, gameTime));
+    setFpsTargets([]);
+    setFightCombo(0);
+    setFightHp(100);
+    setFightEnemyHp(100);
+    setFightRound(0);
+    setFightSeq([]);
+    setFightInput([]);
+    setFightShowSeq(false);
+    setRhythmNotes([]);
+    setRhythmCombo(0);
+    setRhythmMaxCombo(0);
+    setBrObstacles([]);
+    setBrItems([]);
+    setBrPlayerY(50);
+    setScreen("tournament_game");
+  }, [currentTournament, currentRound, isBattling, totalStats]);
 
-    const result = simulateBattle(currentTournament, currentRound);
-    setBattleLog(result.log);
+  // 대회 미니게임 타이머
+  useEffect(() => {
+    if (screen !== "tournament_game" || !tgActive) return;
+    if (tgTimeLeft <= 0) {
+      finishTournamentGame();
+      return;
+    }
+    tgTimerRef.current = setTimeout(() => setTgTimeLeft(t => t - 1), 1000);
+    return () => { if (tgTimerRef.current) clearTimeout(tgTimerRef.current); };
+  }, [screen, tgActive, tgTimeLeft]);
 
-    setTimeout(() => {
-      setRoundResults(prev => [...prev, { won: result.won, score: result.score, enemyName: result.enemyName }]);
-      setCurrentRound(r => r + 1);
-      setIsBattling(false);
-
-      if (!result.won) {
-        // 패배 - 대회 종료
-        const totalScore = roundResults.reduce((s, r) => s + r.score, 0) + result.score;
-        const consolation = Math.floor(totalScore / 5);
-        setCoins(c => c + consolation);
-        setTotalXp(x => x + Math.floor(currentTournament.xpReward * currentRound / currentTournament.rounds));
-        setFanCount(f => f + currentRound * 5);
-        setTimeout(() => setScreen("result"), 500);
-      } else if (currentRound + 1 >= currentTournament.rounds) {
-        // 우승!
-        setCoins(c => c + currentTournament.prizeMoney);
-        setTotalXp(x => x + currentTournament.xpReward);
-        setFanCount(f => f + currentTournament.difficulty * 50);
-        if (!tournamentsWon.includes(currentTournament.id)) {
-          setTournamentsWon(prev => [...prev, currentTournament.id]);
+  // FPS 타겟 스폰
+  useEffect(() => {
+    if (screen !== "tournament_game" || !tgActive) return;
+    const genre = currentTournament ? GENRES.find(g => g.id === currentTournament.genre)?.id : "";
+    if (genre !== "fps" && genre !== "battle_royale") return;
+    tgSpawnRef.current = setInterval(() => {
+      const id = brIdRef.current++;
+      if (genre === "fps") {
+        setFpsTargets(prev => [...prev.slice(-12), {
+          id, x: 5 + Math.random() * 90, y: 5 + Math.random() * 85,
+          size: 25 + Math.random() * 20, life: 30, enemy: Math.random() > 0.15,
+        }]);
+      } else {
+        if (Math.random() < 0.5) {
+          setBrObstacles(prev => [...prev, { id, x: 105, y: 10 + Math.random() * 80, type: Math.random() < 0.5 ? "💥" : "🔥" }]);
+        } else {
+          setBrItems(prev => [...prev, { id, x: 105, y: 10 + Math.random() * 80, emoji: ["⭐", "🪙", "💎", "🎯"][Math.floor(Math.random() * 4)], points: 1 + Math.floor(Math.random() * 3) }]);
         }
-        setTimeout(() => setScreen("result"), 500);
       }
-    }, 1500);
-  }, [currentTournament, currentRound, isBattling, simulateBattle, roundResults, tournamentsWon]);
+    }, genre === "fps" ? 500 : 600);
+    return () => { if (tgSpawnRef.current) clearInterval(tgSpawnRef.current); };
+  }, [screen, tgActive, currentTournament]);
+
+  // FPS 타겟 소멸
+  useEffect(() => {
+    if (screen !== "tournament_game" || !tgActive) return;
+    const genre = currentTournament ? GENRES.find(g => g.id === currentTournament.genre)?.id : "";
+    if (genre !== "fps") return;
+    const interval = setInterval(() => {
+      setFpsTargets(prev => prev.map(t => ({ ...t, life: t.life - 1 })).filter(t => t.life > 0));
+    }, 100);
+    return () => clearInterval(interval);
+  }, [screen, tgActive, currentTournament]);
+
+  // Battle Royale 이동
+  useEffect(() => {
+    if (screen !== "tournament_game" || !tgActive) return;
+    const genre = currentTournament ? GENRES.find(g => g.id === currentTournament.genre)?.id : "";
+    if (genre !== "battle_royale") return;
+    const interval = setInterval(() => {
+      setBrObstacles(prev => prev.map(o => ({ ...o, x: o.x - 3 })).filter(o => o.x > -5));
+      setBrItems(prev => prev.map(i => ({ ...i, x: i.x - 2.5 })).filter(i => i.x > -5));
+      // 충돌 체크
+      setBrObstacles(prev => {
+        const hit = prev.find(o => o.x < 18 && o.x > 5 && Math.abs(o.y - brPlayerY) < 10);
+        if (hit) { setTgScore(s => Math.max(0, s - 2)); return prev.filter(o => o.id !== hit.id); }
+        return prev;
+      });
+      setBrItems(prev => {
+        const hit = prev.find(i => i.x < 18 && i.x > 5 && Math.abs(i.y - brPlayerY) < 10);
+        if (hit) { setTgScore(s => s + hit.points); return prev.filter(i => i.id !== hit.id); }
+        return prev;
+      });
+    }, 60);
+    return () => clearInterval(interval);
+  }, [screen, tgActive, brPlayerY, currentTournament]);
+
+  // Rhythm 노트 생성 & 이동
+  useEffect(() => {
+    if (screen !== "tournament_game" || !tgActive) return;
+    const genre = currentTournament ? GENRES.find(g => g.id === currentTournament.genre)?.id : "";
+    if (genre !== "rhythm") return;
+    const spawnInt = setInterval(() => {
+      const id = brIdRef.current++;
+      setRhythmNotes(prev => [...prev, { id, lane: Math.floor(Math.random() * 4), y: -5, hit: false }]);
+    }, 500);
+    const moveInt = setInterval(() => {
+      setRhythmNotes(prev => {
+        const updated = prev.map(n => ({ ...n, y: n.y + 2 }));
+        const missed = updated.filter(n => !n.hit && n.y > 100);
+        if (missed.length > 0) setRhythmCombo(0);
+        return updated.filter(n => n.y <= 105 || n.hit);
+      });
+    }, 50);
+    return () => { clearInterval(spawnInt); clearInterval(moveInt); };
+  }, [screen, tgActive, currentTournament]);
+
+  // Fighting 시퀀스 생성
+  useEffect(() => {
+    if (screen !== "tournament_game" || !tgActive) return;
+    const genre = currentTournament ? GENRES.find(g => g.id === currentTournament.genre)?.id : "";
+    if (genre !== "fighting" && genre !== "moba" && genre !== "rts") return;
+    generateFightSequence();
+  }, [screen, tgActive, fightRound]);
+
+  const generateFightSequence = () => {
+    const dirs = ["⬆️", "⬇️", "⬅️", "➡️"];
+    const len = 3 + fightRound;
+    const seq = Array.from({ length: Math.min(8, len) }, () => dirs[Math.floor(Math.random() * 4)]);
+    setFightSeq(seq);
+    setFightInput([]);
+    setFightShowSeq(true);
+    setTimeout(() => setFightShowSeq(false), 1500 + seq.length * 300);
+  };
+
+  const handleFightInput = (dir: string) => {
+    if (fightShowSeq) return;
+    const idx = fightInput.length;
+    if (fightSeq[idx] === dir) {
+      const newInput = [...fightInput, dir];
+      setFightInput(newInput);
+      if (newInput.length === fightSeq.length) {
+        // 공격 성공!
+        const dmg = 10 + fightCombo * 3 + Math.floor(totalStats.aim / 5);
+        setFightEnemyHp(hp => Math.max(0, hp - dmg));
+        setFightCombo(c => c + 1);
+        setTgScore(s => s + 2 + fightCombo);
+        setFightRound(r => r + 1);
+      }
+    } else {
+      // 실패 - 적 반격
+      setFightCombo(0);
+      const enemyDmg = 8 + (currentTournament?.difficulty || 1) * 3;
+      setFightHp(hp => Math.max(0, hp - enemyDmg));
+      setFightRound(r => r + 1);
+    }
+  };
+
+  // Rhythm 히트
+  const hitRhythmNote = (lane: number) => {
+    setRhythmNotes(prev => {
+      const target = prev.find(n => !n.hit && n.lane === lane && n.y >= 70 && n.y <= 95);
+      if (target) {
+        setTgScore(s => s + 1 + Math.floor(rhythmCombo / 5));
+        setRhythmCombo(c => { const nc = c + 1; if (nc > rhythmMaxCombo) setRhythmMaxCombo(nc); return nc; });
+        return prev.map(n => n.id === target.id ? { ...n, hit: true } : n);
+      }
+      setRhythmCombo(0);
+      return prev;
+    });
+  };
+
+  // 대회 게임 종료 처리
+  const finishTournamentGame = useCallback(() => {
+    setTgActive(false);
+    if (tgSpawnRef.current) clearInterval(tgSpawnRef.current);
+    if (tgTimerRef.current) clearTimeout(tgTimerRef.current);
+
+    const won = tgScore > tgEnemyScore;
+    const score = tgScore;
+
+    setBattleLog([
+      `📢 ${currentRound + 1}라운드: vs ${tgEnemyName}!`,
+      `내 점수: ${tgScore} vs 상대 점수: ${tgEnemyScore}`,
+      won ? `🎉 승리!!` : `😭 패배...`,
+    ]);
+
+    setRoundResults(prev => [...prev, { won, score, enemyName: tgEnemyName }]);
+    setCurrentRound(r => r + 1);
+
+    if (!won && currentTournament) {
+      const totalScore = roundResults.reduce((s, r) => s + r.score, 0) + score;
+      const consolation = Math.floor(totalScore / 5);
+      setCoins(c => c + consolation);
+      setTotalXp(x => x + Math.floor(currentTournament.xpReward * currentRound / currentTournament.rounds));
+      setFanCount(f => f + currentRound * 5);
+    } else if (currentTournament && currentRound + 1 >= currentTournament.rounds) {
+      setCoins(c => c + currentTournament.prizeMoney);
+      setTotalXp(x => x + currentTournament.xpReward);
+      setFanCount(f => f + currentTournament.difficulty * 50);
+      if (!tournamentsWon.includes(currentTournament.id)) {
+        setTournamentsWon(prev => [...prev, currentTournament.id]);
+      }
+    }
+
+    setTimeout(() => setScreen("tournament_play"), 800);
+  }, [tgScore, tgEnemyScore, tgEnemyName, currentTournament, currentRound, roundResults, tournamentsWon]);
 
   // 훈련
   const doTraining = useCallback((training: Training) => {
@@ -794,6 +996,228 @@ export default function ProGamerPage() {
             })}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  /* ───── 대회 미니게임 ───── */
+  if (screen === "tournament_game" && currentTournament) {
+    const genre = GENRES.find(g => g.id === currentTournament.genre)!;
+    const laneColors = ["#ef4444", "#3b82f6", "#22c55e", "#eab308"];
+    const laneBtns = ["⬅️", "⬇️", "⬆️", "➡️"];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-950 via-indigo-950 to-gray-950 text-white flex flex-col select-none">
+        {/* HUD */}
+        <div className="px-3 py-2 bg-black/60 border-b border-white/10">
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-xs bg-white/10 px-2 py-1 rounded-lg">{genre.emoji} {genre.name}</span>
+            <span className={`text-sm font-bold px-3 py-1 rounded-lg ${tgTimeLeft <= 5 ? "bg-red-500/50 animate-pulse" : "bg-white/10"}`}>⏱️ {tgTimeLeft}초</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <div className="text-sm font-bold text-cyan-400">나: {tgScore}점</div>
+            <div className="text-xs text-gray-400">vs {tgEnemyName}</div>
+            <div className="text-sm font-bold text-red-400">적: {tgEnemyScore}점</div>
+          </div>
+          <div className="flex gap-1 mt-1">
+            <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-full bg-cyan-400 rounded-full transition-all" style={{ width: `${Math.min(100, (tgScore / Math.max(1, tgEnemyScore)) * 50)}%` }} />
+            </div>
+            <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden flex justify-end">
+              <div className="h-full bg-red-400 rounded-full transition-all" style={{ width: `${Math.min(100, (tgEnemyScore / Math.max(1, tgScore)) * 50)}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {/* FPS 게임 */}
+        {(genre.id === "fps") && (
+          <div className="flex-1 relative overflow-hidden bg-gradient-to-b from-gray-900 to-gray-800"
+            style={{ touchAction: "none" }}>
+            {/* 조준선 */}
+            <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center opacity-20">
+              <div className="w-8 h-[1px] bg-green-400" />
+              <div className="w-[1px] h-8 bg-green-400 absolute" />
+            </div>
+            {fpsTargets.map(t => (
+              <button key={t.id}
+                onClick={() => {
+                  if (t.enemy) {
+                    setTgScore(s => s + (t.size < 35 ? 3 : t.size < 45 ? 2 : 1));
+                    setFpsTargets(prev => prev.filter(p => p.id !== t.id));
+                  } else {
+                    setTgScore(s => Math.max(0, s - 2));
+                    setFpsTargets(prev => prev.filter(p => p.id !== t.id));
+                  }
+                }}
+                className="absolute transition-all active:scale-75"
+                style={{
+                  left: `${t.x}%`, top: `${t.y}%`, transform: "translate(-50%,-50%)",
+                  width: t.size, height: t.size, zIndex: 10,
+                }}>
+                <div className={`w-full h-full rounded-full flex items-center justify-center text-lg ${
+                  t.enemy ? "bg-red-600/80 border-2 border-red-400 shadow-red-500/40 shadow-lg" : "bg-blue-600/80 border-2 border-blue-400 shadow-blue-500/40 shadow-lg"
+                }`}>
+                  {t.enemy ? "👾" : "👤"}
+                </div>
+              </button>
+            ))}
+            <div className="absolute bottom-4 left-4 text-xs bg-black/50 px-2 py-1 rounded-lg z-20">
+              👾 적 = +점수 | 👤 아군 = -점수
+            </div>
+          </div>
+        )}
+
+        {/* Battle Royale 게임 */}
+        {genre.id === "battle_royale" && (
+          <div className="flex-1 relative overflow-hidden bg-gradient-to-r from-green-950 via-emerald-950 to-green-950"
+            onPointerMove={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const y = ((e.clientY - rect.top) / rect.height) * 100;
+              setBrPlayerY(Math.max(5, Math.min(95, y)));
+            }}
+            style={{ touchAction: "none" }}>
+            {/* 플레이어 */}
+            <div className="absolute left-[10%] text-3xl z-10 transition-all duration-100"
+              style={{ top: `${brPlayerY}%`, transform: "translateY(-50%)" }}>🏃</div>
+            {/* 장애물 */}
+            {brObstacles.map(o => (
+              <div key={o.id} className="absolute text-2xl" style={{ left: `${o.x}%`, top: `${o.y}%`, transform: "translateY(-50%)" }}>{o.type}</div>
+            ))}
+            {/* 아이템 */}
+            {brItems.map(i => (
+              <div key={i.id} className="absolute text-2xl animate-pulse" style={{ left: `${i.x}%`, top: `${i.y}%`, transform: "translateY(-50%)" }}>{i.emoji}</div>
+            ))}
+            <div className="absolute bottom-4 left-4 text-xs bg-black/50 px-2 py-1 rounded-lg z-20">
+              화면을 터치/마우스로 위아래 이동!
+            </div>
+          </div>
+        )}
+
+        {/* Fighting / MOBA / RTS (커맨드 입력) */}
+        {(genre.id === "fighting" || genre.id === "moba" || genre.id === "rts") && (
+          <div className="flex-1 flex flex-col items-center justify-center p-4">
+            {/* VS 표시 */}
+            <div className="flex items-center gap-6 mb-4">
+              <div className="text-center">
+                <div className="text-4xl mb-1">{genre.id === "fighting" ? "🥊" : genre.id === "moba" ? "⚔️" : "🏰"}</div>
+                <div className="text-sm font-bold">나</div>
+                <div className="w-32 h-3 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${fightHp}%` }} />
+                </div>
+                <div className="text-xs text-gray-400">{fightHp}HP</div>
+              </div>
+              <div className="text-2xl font-black text-red-400">VS</div>
+              <div className="text-center">
+                <div className="text-4xl mb-1">👹</div>
+                <div className="text-sm font-bold text-red-300">{tgEnemyName}</div>
+                <div className="w-32 h-3 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-red-500 rounded-full transition-all" style={{ width: `${fightEnemyHp}%` }} />
+                </div>
+                <div className="text-xs text-gray-400">{fightEnemyHp}HP</div>
+              </div>
+            </div>
+
+            {/* 콤보 */}
+            {fightCombo > 0 && <div className="text-yellow-400 font-bold text-lg mb-2 animate-bounce">🔥 {fightCombo}콤보!</div>}
+
+            {/* 시퀀스 표시 */}
+            <div className="bg-black/40 rounded-xl p-4 mb-4 min-h-[60px] flex items-center justify-center gap-2">
+              {fightShowSeq ? (
+                fightSeq.map((d, i) => (
+                  <span key={i} className="text-2xl animate-pulse" style={{ animationDelay: `${i * 0.15}s` }}>{d}</span>
+                ))
+              ) : (
+                <>
+                  {fightSeq.map((d, i) => (
+                    <span key={i} className={`text-2xl ${i < fightInput.length ? "opacity-100" : "opacity-20"}`}>
+                      {i < fightInput.length ? (fightInput[i] === d ? "✅" : "❌") : "❓"}
+                    </span>
+                  ))}
+                </>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-400 mb-3">
+              {fightShowSeq ? "패턴을 기억하세요!" : "같은 순서로 입력하세요!"}
+            </p>
+
+            {/* 방향 버튼 */}
+            {!fightShowSeq && (
+              <div className="flex flex-col items-center gap-1">
+                <button onClick={() => handleFightInput("⬆️")}
+                  className="w-16 h-12 bg-slate-700 hover:bg-slate-600 rounded-xl text-2xl active:scale-90 transition-all">⬆️</button>
+                <div className="flex gap-1">
+                  <button onClick={() => handleFightInput("⬅️")}
+                    className="w-16 h-12 bg-slate-700 hover:bg-slate-600 rounded-xl text-2xl active:scale-90 transition-all">⬅️</button>
+                  <button onClick={() => handleFightInput("⬇️")}
+                    className="w-16 h-12 bg-slate-700 hover:bg-slate-600 rounded-xl text-2xl active:scale-90 transition-all">⬇️</button>
+                  <button onClick={() => handleFightInput("➡️")}
+                    className="w-16 h-12 bg-slate-700 hover:bg-slate-600 rounded-xl text-2xl active:scale-90 transition-all">➡️</button>
+                </div>
+              </div>
+            )}
+
+            {fightHp <= 0 && <p className="text-red-400 font-bold mt-3">💀 쓰러졌다...</p>}
+            {fightEnemyHp <= 0 && <p className="text-green-400 font-bold mt-3 animate-bounce">🎉 KO!! 승리!</p>}
+          </div>
+        )}
+
+        {/* Rhythm 게임 */}
+        {genre.id === "rhythm" && (
+          <div className="flex-1 flex flex-col">
+            {/* 콤보 */}
+            <div className="text-center py-1">
+              {rhythmCombo > 0 && <span className="text-yellow-400 font-bold text-sm">🔥 {rhythmCombo}콤보!</span>}
+            </div>
+            {/* 노트 영역 */}
+            <div className="flex-1 relative overflow-hidden">
+              <div className="absolute inset-0 flex">
+                {[0, 1, 2, 3].map(lane => (
+                  <div key={lane} className="flex-1 relative border-x border-white/5">
+                    {/* 판정선 */}
+                    <div className="absolute left-0 right-0 bottom-[15%] h-1 rounded-full" style={{ backgroundColor: laneColors[lane], opacity: 0.5 }} />
+                    {/* 노트 */}
+                    {rhythmNotes.filter(n => !n.hit && n.lane === lane).map(n => (
+                      <div key={n.id} className="absolute left-1/2 w-10 h-5 rounded-lg -translate-x-1/2 transition-none"
+                        style={{ top: `${n.y}%`, backgroundColor: laneColors[lane], boxShadow: `0 0 10px ${laneColors[lane]}60` }} />
+                    ))}
+                    {/* 히트 이펙트 */}
+                    {rhythmNotes.filter(n => n.hit && n.lane === lane && n.y <= 100).map(n => (
+                      <div key={`hit-${n.id}`} className="absolute left-1/2 -translate-x-1/2 text-xl animate-ping"
+                        style={{ top: `${n.y}%` }}>✨</div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* 버튼 */}
+            <div className="flex gap-1 p-2 bg-black/60">
+              {[0, 1, 2, 3].map(lane => (
+                <button key={lane}
+                  onClick={() => hitRhythmNote(lane)}
+                  className="flex-1 h-16 rounded-xl text-2xl font-bold active:scale-90 active:brightness-150 transition-all"
+                  style={{ backgroundColor: laneColors[lane] + "40", border: `2px solid ${laneColors[lane]}` }}>
+                  {laneBtns[lane]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 시간 종료 오버레이 */}
+        {!tgActive && tgTimeLeft <= 0 && (
+          <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-30">
+            <div className="text-center">
+              <div className="text-5xl mb-3">{tgScore > tgEnemyScore ? "🎉" : "😤"}</div>
+              <div className="text-2xl font-black mb-1">{tgScore > tgEnemyScore ? "승리!" : "패배..."}</div>
+              <div className="text-sm text-gray-300 mb-4">내 점수: {tgScore} vs 상대: {tgEnemyScore}</div>
+              <button onClick={() => setScreen("tournament_play")}
+                className="bg-purple-600 hover:bg-purple-500 px-8 py-3 rounded-xl font-bold">
+                계속 →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

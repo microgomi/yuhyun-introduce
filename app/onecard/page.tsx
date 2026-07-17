@@ -262,8 +262,8 @@ export default function OneCardPage() {
       aiCards = boss.aiCards;
       aiLevelRef.current = boss.aiLevel;
     } else {
-      playerCards = aiLevelRef.current === "god" ? 50 : aiLevelRef.current === "superextreme" ? 35 : aiLevelRef.current === "extreme" ? 28 : aiLevelRef.current === "supereasy" ? 3 : 7;
-      aiCards = aiLevelRef.current === "god" ? 1 : aiLevelRef.current === "superextreme" ? 3 : aiLevelRef.current === "supereasy" ? 12 : 7;
+      playerCards = aiLevelRef.current === "god" ? 20 : aiLevelRef.current === "superextreme" ? 16 : aiLevelRef.current === "extreme" ? 12 : aiLevelRef.current === "supereasy" ? 3 : 7;
+      aiCards = aiLevelRef.current === "god" ? 4 : aiLevelRef.current === "superextreme" ? 5 : aiLevelRef.current === "supereasy" ? 12 : 7;
     }
 
     let d = shuffle(createDeck());
@@ -957,6 +957,13 @@ export default function OneCardPage() {
       else if (level === "hard") chosen = pickHard();
       else chosen = pickMedium();
 
+      // Nerf: 고난도 AI도 가끔 실수해서 랜덤 카드를 냄 (똑똑함 너프)
+      const mistakeChance =
+        level === "god" ? 0.2 : level === "superextreme" ? 0.25 : level === "extreme" ? 0.3 : level === "hard" ? 0.25 : 0;
+      if (mistakeChance > 0 && curAttack === 0 && Math.random() < mistakeChance) {
+        chosen = playable[Math.floor(Math.random() * playable.length)];
+      }
+
       // Remove from hand
       const idx = curAiHand.findIndex((c) => c.id === chosen.id);
       const newAiHand = [...curAiHand.slice(0, idx), ...curAiHand.slice(idx + 1)];
@@ -1159,7 +1166,7 @@ export default function OneCardPage() {
     if (turn !== "player" || gamePhase !== "playing") return;
 
     if (attackStack > 0) {
-      const penalty = aiLevel === "god" ? attackStack * 10 : aiLevel === "superextreme" ? attackStack * 3 : aiLevel === "extreme" ? attackStack * 2 : attackStack;
+      const penalty = aiLevel === "god" ? attackStack * 3 : aiLevel === "superextreme" ? attackStack * 2 : attackStack;
       const [drawn, newDeck, newDiscard] = drawCards(deck, discardPile, penalty);
       setPlayerHand([...playerHand, ...drawn]);
       setDeck(newDeck);
@@ -1168,11 +1175,9 @@ export default function OneCardPage() {
       setTurn("ai");
       setMessage(
         aiLevel === "god"
-          ? `${attackStack}장 x10 = ${drawn.length}장!!! 💀🔥🔥🔥 끝이다!!!`
+          ? `${attackStack}장 x3 = ${drawn.length}장을 받았어요! 💀🔥`
           : aiLevel === "superextreme"
-          ? `${attackStack}장 x3 = ${drawn.length}장을 받았어요! ☠️💀💀`
-          : aiLevel === "extreme"
-          ? `${attackStack}장 x2 = ${drawn.length}장을 받았어요! 👹💀`
+          ? `${attackStack}장 x2 = ${drawn.length}장을 받았어요! ☠️💀`
           : `${drawn.length}장을 받았어요! 😅`
       );
       scheduleAiTurn(newDeck, [...playerHand, ...drawn], aiHand, newDiscard, currentColor, 0);
@@ -1243,9 +1248,9 @@ export default function OneCardPage() {
                   { level: "easy" as AiLevel, emoji: "🐣", label: "하수", desc: "쉬워요!", color: "from-green-400 to-emerald-500" },
                   { level: "medium" as AiLevel, emoji: "🦊", label: "중수", desc: "제법 잘해요", color: "from-yellow-400 to-orange-500" },
                   { level: "hard" as AiLevel, emoji: "🦁", label: "고수", desc: "무서워요!", color: "from-red-500 to-rose-600" },
-                  { level: "extreme" as AiLevel, emoji: "👹", label: "익스트림", desc: "카드 28장!", color: "from-purple-600 to-fuchsia-600" },
-                  { level: "superextreme" as AiLevel, emoji: "☠️", label: "슈퍼익스트림", desc: "카드 35장! x3!", color: "from-red-900 to-black" },
-                  { level: "god" as AiLevel, emoji: "💀🔥", label: "슈퍼x5", desc: "50장! x10! 불가능!", color: "from-red-600 via-yellow-500 to-red-600" },
+                  { level: "extreme" as AiLevel, emoji: "👹", label: "익스트림", desc: "카드 12장!", color: "from-purple-600 to-fuchsia-600" },
+                  { level: "superextreme" as AiLevel, emoji: "☠️", label: "슈퍼익스트림", desc: "카드 16장! x2!", color: "from-red-900 to-black" },
+                  { level: "god" as AiLevel, emoji: "💀🔥", label: "슈퍼x5", desc: "20장! x3! 도전!", color: "from-red-600 via-yellow-500 to-red-600" },
                 ]).map((opt) => (
                   <button
                     key={opt.level}
@@ -1414,11 +1419,9 @@ export default function OneCardPage() {
                 <p className="max-w-xs text-center text-xs text-indigo-400">
                   {attackStack > 0
                     ? aiLevel === "god"
-                      ? `방어 못하면 ${attackStack}x10 = ${attackStack * 10}장!!! 💀🔥 (카드 더미 클릭)`
+                      ? `방어 못하면 ${attackStack}x3 = ${attackStack * 3}장! 💀🔥 (카드 더미 클릭)`
                       : aiLevel === "superextreme"
-                      ? `방어 못하면 ${attackStack}x3 = ${attackStack * 3}장! ☠️ (카드 더미 클릭)`
-                      : aiLevel === "extreme"
-                      ? `방어 못하면 ${attackStack}x2 = ${attackStack * 2}장! 👹 (카드 더미 클릭)`
+                      ? `방어 못하면 ${attackStack}x2 = ${attackStack * 2}장! ☠️ (카드 더미 클릭)`
                       : `방어 카드가 없으면 ${attackStack}장을 받아야 해요! (카드 더미 클릭)`
                     : "낼 카드가 없으면 카드 더미를 클릭해서 뽑으세요"}
                 </p>

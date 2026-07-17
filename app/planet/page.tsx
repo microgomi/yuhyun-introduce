@@ -27,7 +27,7 @@ const FRICTION = 0.99;
 const DROP_Y = 60;
 
 const PLANET_DEFS: { name: string; emoji: string; color: string; glow: string; radius: number; points: number }[] = [
-  { name: "먼지", emoji: "🌑", color: "#555", glow: "#777", radius: 14, points: 2 },
+  { name: "먼지", emoji: "🌑", color: "#555555", glow: "#777777", radius: 14, points: 2 },
   { name: "소행성", emoji: "☄️", color: "#8B7355", glow: "#A0926B", radius: 18, points: 5 },
   { name: "달", emoji: "🌙", color: "#C0C0C0", glow: "#E0E0E0", radius: 22, points: 10 },
   { name: "화성", emoji: "🔴", color: "#CD5C5C", glow: "#FF6B6B", radius: 27, points: 20 },
