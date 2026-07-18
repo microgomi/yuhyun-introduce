@@ -1135,6 +1135,13 @@ export default function Home() {
                 bg: "from-sky-400 to-blue-600",
                 href: "/runner",
               },
+              {
+                emoji: "🥊",
+                title: "2인 대전 격투",
+                desc: "패드 vs 키보드! 둘이 직접 싸워라!",
+                bg: "from-red-500 to-blue-600",
+                href: "/versus",
+              },
             ].map((item) => {
               const Card = (
                 <div
