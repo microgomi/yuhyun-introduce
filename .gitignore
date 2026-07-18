@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Claude Code
 .claude/
+
+# Local deploy notes with secrets — do not commit
+CLAUDE.md
