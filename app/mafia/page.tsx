@@ -142,11 +142,165 @@ function aiVote(player: Player, allPlayers: Player[], knownMafia: number[]): num
   return alive[Math.floor(Math.random() * alive.length)].id;
 }
 
+// --- 플레이어 채팅에 대한 AI 반응 생성 ---
+interface Reaction {
+  speakerId: number;
+  text: string;
+}
+
+function detectMention(text: string, players: Player[], selfId: number): Player | null {
+  const candidates = players.filter(
+    (p) => p.alive && p.id !== selfId && p.name && p.name !== "나" && text.includes(p.name)
+  );
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => b.name.length - a.name.length)[0];
+}
+
+function buildReactions(
+  text: string,
+  players: Player[]
+): { reactions: Reaction[]; newSuspicion: Record<number, Record<number, number>> } {
+  const self = players.find((p) => p.isPlayer)!;
+  const aliveAI = players.filter((p) => p.alive && !p.isPlayer);
+  const mentioned = detectMention(text, players, self.id);
+  const accuseWords = ["의심", "마피아", "수상", "범인", "거짓", "이상", "조용", "무서", "너지", "너야", "같은데", "같아", "이야", "이에요?"];
+  const defendWords = ["시민", "아니", "결백", "믿어", "억울", "오해", "안했", "안 했"];
+  const roleWords = ["경찰", "의사", "확인했", "조사했", "확인해", "조사해", "역할"];
+  const isAccuse = accuseWords.some((w) => text.includes(w));
+  const isDefend = defendWords.some((w) => text.includes(w));
+  const isRoleClaim = roleWords.some((w) => text.includes(w));
+
+  const susp: Record<number, Record<number, number>> = {};
+  for (const ai of aliveAI) susp[ai.id] = { ...ai.suspicion };
+  const bump = (byId: number, targetId: number, amt: number) => {
+    if (!susp[byId]) return;
+    susp[byId][targetId] = (susp[byId][targetId] ?? 0) + amt;
+  };
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+  const reactions: Reaction[] = [];
+
+  if (mentioned && isAccuse && !mentioned.isPlayer) {
+    const target = mentioned;
+    // 무리 심리: 다른 AI들도 지목당한 사람을 조금 더 의심
+    for (const ai of aliveAI) if (ai.id !== target.id) bump(ai.id, target.id, 1);
+    // 지목당한 AI의 반박
+    if (target.role === "mafia") {
+      bump(target.id, self.id, 3);
+      reactions.push({
+        speakerId: target.id,
+        text: pick([
+          "네?! 제가 왜 마피아예요! 오히려 당신이 수상한데요?",
+          "억울해요! 증거 있어요? 절 몰아가는 게 더 의심스러운데...",
+          "저 진짜 시민이에요!! 왜 저한테 뒤집어씌워요?",
+        ]),
+      });
+    } else {
+      bump(target.id, self.id, 1);
+      reactions.push({
+        speakerId: target.id,
+        text: pick([
+          "네?! 저 아니에요 진짜로요... 왜 저를 의심하세요 ㅠㅠ",
+          "억울합니다! 저는 결백해요, 믿어주세요!",
+          "오해예요! 저 시민이라고요!",
+        ]),
+      });
+    }
+    // 다른 AI 한 명이 끼어듦
+    const others = aliveAI.filter((a) => a.id !== target.id);
+    if (others.length) {
+      const r = pick(others);
+      if (r.role === "mafia" && target.role !== "mafia") {
+        bump(r.id, target.id, 2);
+        reactions.push({
+          speakerId: r.id,
+          text: pick([
+            `맞아요, 저도 ${target.name}님 좀 이상하다고 생각했어요!`,
+            `오 저도 ${target.name}님 의심했는데! 투표합시다.`,
+            `${target.name}님 아까부터 수상했어요. 동의해요.`,
+          ]),
+        });
+      } else if (r.role === "mafia" && target.role === "mafia") {
+        bump(r.id, self.id, 2);
+        reactions.push({
+          speakerId: r.id,
+          text: pick([
+            `음... ${target.name}님은 아닌 것 같은데요? 너무 몰아가지 맙시다.`,
+            `증거도 없이 ${target.name}님을 의심하는 게 더 이상해요.`,
+          ]),
+        });
+      } else {
+        const s = r.suspicion[target.id] ?? 0;
+        if (s >= 2) {
+          bump(r.id, target.id, 1);
+          reactions.push({
+            speakerId: r.id,
+            text: pick([`사실 저도 ${target.name}님이 좀 걸렸어요.`, `일리 있네요. ${target.name}님 해명해보세요.`]),
+          });
+        } else {
+          reactions.push({
+            speakerId: r.id,
+            text: pick(["글쎄요... 확실한 증거가 있나요?", "너무 성급한 거 아니에요? 좀 더 지켜봐요.", `흠, ${target.name}님은 어떻게 생각하세요?`]),
+          });
+        }
+      }
+    }
+  } else if (isRoleClaim) {
+    const r1 = pick(aliveAI);
+    reactions.push({
+      speakerId: r1.id,
+      text: pick(["오 정말요? 그럼 누가 마피아예요?", "그 말 믿어도 되는 거죠? 확실해요?", "그럼 조사 결과 알려주세요!"]),
+    });
+    const maf = aliveAI.find((a) => a.role === "mafia");
+    if (maf) {
+      bump(maf.id, self.id, 2);
+      reactions.push({
+        speakerId: maf.id,
+        text: pick(["에이~ 진짜 맞아요? 가짜 같은데요.", "말로는 다들 특수직업이라고 하죠. 못 믿겠어요.", "저 사람 오히려 마피아가 거짓말하는 거 같은데요?"]),
+      });
+    }
+  } else if (isDefend) {
+    const maf = aliveAI.find((a) => a.role === "mafia");
+    if (maf) {
+      bump(maf.id, self.id, 1);
+      reactions.push({
+        speakerId: maf.id,
+        text: pick(["말로는 다들 시민이라고 하죠...", "그걸 어떻게 믿어요? 좀 더 지켜볼게요.", "변명이 너무 빠른데요? 수상해요."]),
+      });
+    }
+    const cit = aliveAI.find((a) => ROLE_INFO[a.role].team === "citizen" && a.id !== maf?.id);
+    if (cit) {
+      reactions.push({
+        speakerId: cit.id,
+        text: pick(["일단 믿어볼게요. 대신 수상하게 굴지 마세요!", "알겠어요, 그럼 같이 마피아 찾아봐요.", "좋아요, 협력합시다!"]),
+      });
+    }
+  } else {
+    const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+    const chosen = shuffle(aliveAI).slice(0, n);
+    for (const r of chosen)
+      reactions.push({
+        speakerId: r.id,
+        text: pick([
+          "무슨 근거로요?",
+          "흠... 일리 있네요.",
+          "저도 잘 모르겠어요.",
+          "계속 얘기해봐요, 듣고 있어요.",
+          "그래서 누구를 의심하시는 거예요?",
+          "동의해요!",
+          "좀 더 단서가 필요해요.",
+        ]),
+      });
+  }
+
+  return { reactions, newSuspicion: susp };
+}
+
 export default function MafiaPage() {
   const [phase, setPhase] = useState<Phase>("lobby");
   const [players, setPlayers] = useState<Player[]>([]);
   const [dayNum, setDayNum] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
   const [selectedTarget, setSelectedTarget] = useState<number | null>(null);
   const [nightActions, setNightActions] = useState<NightAction[]>([]);
   const [lastKilled, setLastKilled] = useState<Player | null>(null);
@@ -386,6 +540,31 @@ export default function MafiaPage() {
       delay += 800 + Math.random() * 600;
     }
   };
+
+  const sendPlayerMessage = useCallback(() => {
+    const text = chatInput.trim();
+    if (!text || phase !== "day") return;
+    const me = players.find((p) => p.isPlayer);
+    if (!me || !me.alive) return;
+
+    setChat((prev) => [...prev, { speakerId: me.id, text, isSystem: false }]);
+    setChatInput("");
+
+    const { reactions, newSuspicion } = buildReactions(text, players);
+    // 의심도 반영 (투표에 영향)
+    setPlayers((prev) =>
+      prev.map((p) => (!p.isPlayer && newSuspicion[p.id] ? { ...p, suspicion: newSuspicion[p.id] } : p))
+    );
+    // AI 반응을 시간차로 출력
+    let delay = 500;
+    for (const r of reactions) {
+      const rr = r;
+      setTimeout(() => {
+        setChat((prev) => [...prev, { speakerId: rr.speakerId, text: rr.text, isSystem: false }]);
+      }, delay);
+      delay += 700 + Math.random() * 500;
+    }
+  }, [chatInput, phase, players]);
 
   const startVoting = () => {
     setPhase("voting");
@@ -698,11 +877,15 @@ export default function MafiaPage() {
                     {msg.isSystem ? (
                       <p className="text-xs text-yellow-300/80">{msg.text}</p>
                     ) : (
-                      <div className="flex items-start gap-2">
+                      <div className={`flex items-start gap-2 ${speaker?.isPlayer ? "flex-row-reverse" : ""}`}>
                         <span className="text-lg">{speaker?.emoji}</span>
-                        <div>
-                          <span className="text-xs font-bold text-gray-300">{speaker?.name}</span>
-                          <p className="text-sm text-gray-200">{msg.text}</p>
+                        <div className={speaker?.isPlayer ? "text-right" : ""}>
+                          <span className={`text-xs font-bold ${speaker?.isPlayer ? "text-indigo-300" : "text-gray-300"}`}>
+                            {speaker?.isPlayer ? "나" : speaker?.name}
+                          </span>
+                          <p className={`text-sm ${speaker?.isPlayer ? "inline-block rounded-lg bg-indigo-600/40 px-2 py-1 text-white" : "text-gray-200"}`}>
+                            {msg.text}
+                          </p>
                         </div>
                       </div>
                     )}
@@ -710,6 +893,34 @@ export default function MafiaPage() {
                 );
               })}
             </div>
+
+            {/* 내 채팅 입력 */}
+            {myPlayer?.alive ? (
+              <div className="flex gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") sendPlayerMessage();
+                  }}
+                  maxLength={80}
+                  placeholder="의견을 말해보세요! 예: 민수님이 의심돼요"
+                  className="flex-1 rounded-full border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-400"
+                />
+                <button
+                  onClick={sendPlayerMessage}
+                  disabled={!chatInput.trim()}
+                  className="rounded-full bg-indigo-500 px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
+                >
+                  전송
+                </button>
+              </div>
+            ) : (
+              <p className="text-center text-xs text-gray-500">💀 당신은 사망하여 발언할 수 없습니다 (지켜보세요)</p>
+            )}
+            <p className="text-center text-[11px] text-gray-500">
+              💬 이름을 넣어 의심하거나 변호해보세요. AI들이 반응하고 의심도가 바뀝니다!
+            </p>
 
             <button onClick={startVoting} className="w-full rounded-full bg-gradient-to-r from-rose-500 to-red-600 py-3 font-bold shadow-lg transition-transform hover:scale-105 active:scale-95">
               🗳️ 투표 시작!
