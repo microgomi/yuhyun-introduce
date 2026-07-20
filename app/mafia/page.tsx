@@ -59,56 +59,138 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function generateDiscussion(player: Player, allPlayers: Player[], dayNum: number, lastKilled: Player | null, lastVoted: Player | null, knownMafia: number[]): string {
-  const alive = allPlayers.filter((p) => p.alive && p.id !== player.id);
-  const isMafia = player.role === "mafia";
+// ===== 대사 뱅크 (조합형: 수십만 가지 문장 생성) =====
+const rp = <T,>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
+const chance = (p: number) => Math.random() < p;
+const fill = (s: string, n: string) => s.split("{n}").join(n);
+const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
-  // Mafia tries to deflect
-  if (isMafia) {
-    const innocentTargets = alive.filter((p) => p.role !== "mafia");
-    const target = innocentTargets[Math.floor(Math.random() * innocentTargets.length)];
-    const deflects = [
-      `${target?.name}님이 좀 의심스러워요... 표정이 이상했어요.`,
-      `저는 확실히 시민이에요! 다들 저를 믿어주세요.`,
-      `어젯밤에 ${target?.name}님이 수상한 행동을 한 것 같아요.`,
-      `저는 아무것도 모르겠어요... 근데 ${target?.name}님은 좀 조용하지 않나요?`,
-      `${lastKilled ? `${lastKilled.name}님이 죽다니... ${target?.name}님이 제일 의심돼요.` : "다들 조심해야 해요."}`,
-    ];
-    return deflects[Math.floor(Math.random() * deflects.length)];
+const SUS_OPENERS = [
+  "솔직히", "내 생각엔", "아까부터 봤는데", "가만 보니까", "다들 눈치챘어요?", "이거 느낌 오는데",
+  "냉정하게 보면", "확실친 않지만", "딱 봐도", "계속 지켜봤는데", "뭔가", "은근히", "진짜로",
+  "곰곰이 생각해보면", "제 촉으로는", "이상하게", "요즘 보면", "어젯밤부터", "아무리 봐도",
+  "말하기 좀 그렇지만", "조심스럽게 말하면", "제 눈엔", "가만있어 보자", "지금 딱 느꼈는데", "음...",
+];
+const SUS_REASONS = [
+  "말이 자꾸 바뀌어요", "눈을 안 마주쳐요", "너무 조용해요", "갑자기 말이 많아졌어요", "질문을 자꾸 피해요",
+  "표정이 굳어 있어요", "웃는 게 어색해요", "남 얘기만 해요", "투표할 때 눈치를 봐요", "밤마다 반응이 이상해요",
+  "변명이 너무 빨라요", "말끝을 흐려요", "괜히 나서요", "조용히 있다가 튀어나와요", "논리가 이상해요",
+  "아까랑 말이 달라요", "혼자만 여유로워요", "시선이 불안해요", "대답이 애매해요", "괜히 화를 내요",
+  "너무 착한 척해요", "핵심을 자꾸 피해요", "누굴 감싸는 것 같아요", "티나게 긴장했어요", "말투가 부자연스러워요",
+  "자기 얘기를 안 해요", "결정적일 때 말을 아껴요", "은근슬쩍 넘어가려 해요", "행동이 부자연스러워요", "뭔가 숨기는 것 같아요",
+];
+const SUS_ENDERS = [
+  "진짜 수상해요.", "마피아 아니에요?", "저는 의심돼요.", "투표합시다.", "해명 좀 해보세요.", "딱 마피아 각인데요.",
+  "인정하죠?", "솔직히 말해봐요.", "저만 그렇게 느껴요?", "이번엔 확실해요.", "느낌이 쎄해요.", "제 눈은 못 속여요.",
+  "오늘 투표는 정했어요.", "슬슬 걸리네요.", "긴장한 거 티나요.", "다들 잘 봐요.", "저 이 사람 뽑을래요.", "수상함 그 자체예요.",
+  "설명해봐요 어서.", "냄새가 나요.", "저는 못 믿겠어요.", "무조건 봐야 돼요.",
+];
+const DEFLECT_OPEN = [
+  "저는 진짜 시민이에요.", "왜 다들 저를 봐요? 저 아니에요.", "저 억울해요 진짜.", "저 완전 결백해요.",
+  "저 의심하지 마세요, 시민이라고요.", "제가 마피아면 이렇게 나서겠어요?", "저 진짜 아무것도 몰라요.",
+  "저 믿어주세요 제발.", "저 정말 시민이에요, 답답하네요.", "저한테 왜 이러세요...", "저 그런 사람 아니에요.",
+];
+const DEFLECT_COUNTER = [
+  "근데 {n}님은 좀 이상하지 않아요?", "오히려 {n}님이 더 수상한데요.", "제 눈엔 {n}님이 더 걸려요.",
+  "{n}님 아까 반응 보셨어요?", "저보다 {n}님을 보세요.", "{n}님이 너무 조용하잖아요.",
+  "{n}님이 절 몰아가는 게 더 의심돼요.", "{n}님부터 해명해보세요.", "{n}님 표정 보셨어요? 그게 더 이상해요.",
+];
+const INNOCENT_DEFEND = [
+  "네?! 저 아니에요 진짜로요 ㅠㅠ", "왜 저를 의심하세요... 억울해요.", "저 시민이에요! 믿어주세요.",
+  "증거도 없이 왜 이래요...", "저 진짜 결백해요!", "제가 뭘 잘못했다고요 ㅠ", "아니 저 아니라니까요!",
+  "너무 몰아가지 마세요, 저 시민이에요.", "헉 저요? 진짜 아니에요.", "저 억울해서 눈물 나요 ㅠㅠ", "제발 오해 풀어주세요.",
+];
+const MAFIA_DEFEND = [
+  "네?! 제가 왜 마피아예요! 말도 안 돼요.", "억울해요! 증거 있어요?", "오히려 절 의심하는 그쪽이 더 수상한데요?",
+  "저 진짜 시민이에요!! 왜 저한테 뒤집어씌워요?", "지금 저 몰아가는 거, 그게 마피아 수법 아니에요?",
+  "저 그런 사람 아니에요, 진정하세요.", "하... 어이없네요, 저 결백해요.", "저 지목하는 사람이 진짜 마피아 같은데요?",
+];
+const AGREE_LINES = [
+  "맞아요, 저도 {n}님 이상하다 했어요!", "오 저도요! {n}님 투표.", "인정, {n}님 수상했어요.",
+  "동의해요, {n}님 걸려요.", "그니까요, {n}님 딱이에요.", "저도 {n}님 찍을래요.",
+  "{n}님 아까부터 티 났어요.", "맞네요, {n}님이네.", "저도 {n}님 계속 걸렸어요.", "{n}님 확실한 듯요.",
+];
+const DEFEND_OTHER = [
+  "음, {n}님은 아닌 것 같은데요?", "{n}님 너무 몰아가지 맙시다.", "증거도 없이 {n}님을 왜요?",
+  "{n}님은 계속 시민처럼 굴었어요.", "저는 {n}님 안 의심해요.", "{n}님 말고 다른 사람 같은데요.",
+  "{n}님한테 너무 심한 거 아니에요?",
+];
+const GENERAL_LINES = [
+  "아직 잘 모르겠어요, 더 지켜봐요.", "단서가 너무 부족해요.", "다들 솔직하게 말해요!", "마피아가 대체 누구야...",
+  "조용한 사람이 제일 무서워요.", "이번 밤은 다들 조심합시다.", "누구 말을 믿어야 할지 모르겠어요.",
+  "논리적으로 생각해봐요 우리.", "감으로만 뽑으면 안 돼요.", "저는 아직 중립이에요.", "정보 가진 사람 있으면 말해줘요.",
+  "지금까지 나온 말 좀 정리해봐요.", "억울한 사람 없게 신중히 해요.", "저 오늘 촉이 좀 와요.", "다들 알리바이 말해봐요.",
+  "너무 조용하면 그것도 수상해요.", "이러다 시민만 죽어요, 집중합시다.", "한 명씩 의견 말해봐요.",
+];
+const QUESTION_LINES = [
+  "무슨 근거로요?", "증거 있어요?", "왜 그렇게 생각해요?", "확실해요 그거?", "그쪽은 누구 의심하는데요?",
+  "그럼 님은 뭔데요?", "너무 성급한 거 아니에요?", "좀 더 설명해봐요.", "진짜 그렇게 느꼈어요?", "왜 하필 그 사람이에요?",
+];
+const POLICE_LINES = [
+  "제가 좀 알아봤는데... {n}님 정말 수상해요.", "믿을 만한 정보가 있어요. {n}님 조심하세요.",
+  "{n}님 강력하게 의심합니다. 이유는 묻지 마세요.", "제 감이 아니라 근거가 있어요. {n}님이에요.",
+  "오늘은 {n}님을 봐야 해요, 확신해요.", "저 믿고 {n}님 같이 투표해요.",
+];
+const ROLECLAIM_REACT = [
+  "오 정말요? 그럼 누가 마피아예요?", "그 말 믿어도 돼요? 확실해요?", "결과 있으면 지금 말해줘요!",
+  "오오 그럼 빨리 지목해요.", "진짜면 완전 든든한데요.", "증명할 수 있어요?",
+];
+const DISCREDIT_LINES = [
+  "에이~ 진짜 맞아요? 가짜 같은데.", "말로는 다 특수직업이죠.", "저 사람이 오히려 거짓말하는 것 같은데요?",
+  "너무 급하게 커밍아웃하는 거 아니에요?", "마피아가 경찰인 척하는 걸 수도 있어요.", "솔직히 못 믿겠어요.",
+];
+const DOUBT_LINES = [
+  "말로는 다들 시민이라고 하죠...", "그걸 어떻게 믿어요?", "변명이 너무 빠른데요?", "글쎄요, 좀 더 볼게요.",
+  "그렇게 말할수록 더 수상해요.", "믿고 싶은데 증거가 없네요.",
+];
+const TRUST_LINES = [
+  "알겠어요, 일단 믿어볼게요.", "좋아요, 같이 마피아 찾아요.", "오케이 협력합시다!",
+  "그래요, 대신 수상하게 굴지 마요.", "믿어드릴게요 이번엔.", "좋아요, 그 말 믿을게요.",
+];
+const EMOJI_SUFFIX = ["", "", "", "", " 🤔", " 👀", " 😤", " 🧐", " 😳", " 🔥", " ㅋㅋ", " ..."];
+
+function saySuspect(n: string): string {
+  const forms = [
+    () => `${rp(SUS_OPENERS)} ${n}님 ${rp(SUS_REASONS)}. ${rp(SUS_ENDERS)}`,
+    () => `${n}님, ${rp(SUS_REASONS)}. ${rp(SUS_ENDERS)}`,
+    () => `${rp(SUS_ENDERS)} ${rp(SUS_OPENERS)} ${n}님 ${rp(SUS_REASONS)}.`,
+    () => `${rp(SUS_OPENERS)} ${n}님 좀 봐요. ${rp(SUS_ENDERS)}`,
+    () => `${n}님 ${rp(SUS_REASONS)}... ${rp(SUS_ENDERS)}`,
+  ];
+  return norm(rp(forms)()) + rp(EMOJI_SUFFIX);
+}
+function sayMafiaDeflect(targetName: string | null): string {
+  if (targetName && chance(0.45)) return saySuspect(targetName); // 시민인 척 남 의심
+  if (targetName && chance(0.75)) return norm(`${rp(DEFLECT_OPEN)} ${fill(rp(DEFLECT_COUNTER), targetName)}`) + rp(EMOJI_SUFFIX);
+  return rp(DEFLECT_OPEN) + rp(EMOJI_SUFFIX);
+}
+
+function generateDiscussion(player: Player, allPlayers: Player[], _dayNum: number, _lastKilled: Player | null, _lastVoted: Player | null, knownMafia: number[]): string {
+  const alive = allPlayers.filter((p) => p.alive && p.id !== player.id);
+
+  // 마피아: 발뺌 / 역공 / 시민인 척 의심
+  if (player.role === "mafia") {
+    const innocent = alive.filter((p) => p.role !== "mafia");
+    const target = innocent.length ? rp(innocent) : null;
+    return sayMafiaDeflect(target ? target.name : null);
   }
 
-  // Police who knows mafia
+  // 경찰: 아는 마피아 지목
   if (player.role === "police" && knownMafia.length > 0) {
     const known = allPlayers.find((p) => p.id === knownMafia[knownMafia.length - 1] && p.alive);
-    if (known && Math.random() < 0.7) {
-      return `제가 확인해봤는데... ${known.name}님이 정말 의심스러워요! 강력하게 추천합니다.`;
-    }
+    if (known && chance(0.7)) return norm(fill(rp(POLICE_LINES), known.name)) + rp(EMOJI_SUFFIX);
   }
 
-  // Regular citizen/doctor discussion
+  // 일반 시민/의사: 가장 의심되는 사람 지목
   const highest = Object.entries(player.suspicion)
     .filter(([id]) => allPlayers.find((p) => p.id === Number(id))?.alive)
     .sort((a, b) => b[1] - a[1])[0];
-
   if (highest && highest[1] > 2) {
     const suspect = allPlayers.find((p) => p.id === Number(highest[0]));
-    const reasons = [
-      `${suspect?.name}님이 계속 눈치를 보는 것 같아요.`,
-      `${suspect?.name}님의 말이 자꾸 바뀌는 것 같아요... 의심스러워요.`,
-      `저는 ${suspect?.name}님이 마피아라고 생각해요!`,
-      `${suspect?.name}님, 왜 그렇게 조용하세요? 마피아 아니에요?`,
-    ];
-    return reasons[Math.floor(Math.random() * reasons.length)];
+    if (suspect) return saySuspect(suspect.name);
   }
 
-  const generals = [
-    "아직 잘 모르겠어요... 좀 더 지켜봐야 할 것 같아요.",
-    "다들 의심스럽지만, 확신은 없어요.",
-    `${lastKilled ? `${lastKilled.name}님이 죽은 게 너무 안타깝네요...` : "조심합시다!"}`,
-    "마피아가 누구일까... 단서가 부족해요.",
-    "모두 솔직하게 말해주세요!",
-  ];
-  return generals[Math.floor(Math.random() * generals.length)];
+  return rp(GENERAL_LINES) + rp(EMOJI_SUFFIX);
 }
 
 function aiVote(player: Player, allPlayers: Player[], knownMafia: number[]): number {
@@ -176,7 +258,6 @@ function buildReactions(
     if (!susp[byId]) return;
     susp[byId][targetId] = (susp[byId][targetId] ?? 0) + amt;
   };
-  const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
   const reactions: Reaction[] = [];
 
   if (mentioned && isAccuse && !mentioned.isPlayer) {
@@ -186,110 +267,52 @@ function buildReactions(
     // 지목당한 AI의 반박
     if (target.role === "mafia") {
       bump(target.id, self.id, 3);
-      reactions.push({
-        speakerId: target.id,
-        text: pick([
-          "네?! 제가 왜 마피아예요! 오히려 당신이 수상한데요?",
-          "억울해요! 증거 있어요? 절 몰아가는 게 더 의심스러운데...",
-          "저 진짜 시민이에요!! 왜 저한테 뒤집어씌워요?",
-        ]),
-      });
+      reactions.push({ speakerId: target.id, text: rp(MAFIA_DEFEND) + rp(EMOJI_SUFFIX) });
     } else {
       bump(target.id, self.id, 1);
-      reactions.push({
-        speakerId: target.id,
-        text: pick([
-          "네?! 저 아니에요 진짜로요... 왜 저를 의심하세요 ㅠㅠ",
-          "억울합니다! 저는 결백해요, 믿어주세요!",
-          "오해예요! 저 시민이라고요!",
-        ]),
-      });
+      reactions.push({ speakerId: target.id, text: rp(INNOCENT_DEFEND) + rp(EMOJI_SUFFIX) });
     }
-    // 다른 AI 한 명이 끼어듦
-    const others = aliveAI.filter((a) => a.id !== target.id);
-    if (others.length) {
-      const r = pick(others);
+    // 다른 AI 1~2명이 끼어듦
+    const others = shuffle(aliveAI.filter((a) => a.id !== target.id)).slice(0, chance(0.5) ? 2 : 1);
+    for (const r of others) {
       if (r.role === "mafia" && target.role !== "mafia") {
         bump(r.id, target.id, 2);
-        reactions.push({
-          speakerId: r.id,
-          text: pick([
-            `맞아요, 저도 ${target.name}님 좀 이상하다고 생각했어요!`,
-            `오 저도 ${target.name}님 의심했는데! 투표합시다.`,
-            `${target.name}님 아까부터 수상했어요. 동의해요.`,
-          ]),
-        });
+        reactions.push({ speakerId: r.id, text: fill(rp(AGREE_LINES), target.name) + rp(EMOJI_SUFFIX) });
       } else if (r.role === "mafia" && target.role === "mafia") {
         bump(r.id, self.id, 2);
-        reactions.push({
-          speakerId: r.id,
-          text: pick([
-            `음... ${target.name}님은 아닌 것 같은데요? 너무 몰아가지 맙시다.`,
-            `증거도 없이 ${target.name}님을 의심하는 게 더 이상해요.`,
-          ]),
-        });
+        reactions.push({ speakerId: r.id, text: fill(rp(DEFEND_OTHER), target.name) + rp(EMOJI_SUFFIX) });
       } else {
         const s = r.suspicion[target.id] ?? 0;
         if (s >= 2) {
           bump(r.id, target.id, 1);
-          reactions.push({
-            speakerId: r.id,
-            text: pick([`사실 저도 ${target.name}님이 좀 걸렸어요.`, `일리 있네요. ${target.name}님 해명해보세요.`]),
-          });
+          reactions.push({ speakerId: r.id, text: chance(0.5) ? fill(rp(AGREE_LINES), target.name) : saySuspect(target.name) });
         } else {
-          reactions.push({
-            speakerId: r.id,
-            text: pick(["글쎄요... 확실한 증거가 있나요?", "너무 성급한 거 아니에요? 좀 더 지켜봐요.", `흠, ${target.name}님은 어떻게 생각하세요?`]),
-          });
+          reactions.push({ speakerId: r.id, text: rp(QUESTION_LINES) + rp(EMOJI_SUFFIX) });
         }
       }
     }
   } else if (isRoleClaim) {
-    const r1 = pick(aliveAI);
-    reactions.push({
-      speakerId: r1.id,
-      text: pick(["오 정말요? 그럼 누가 마피아예요?", "그 말 믿어도 되는 거죠? 확실해요?", "그럼 조사 결과 알려주세요!"]),
-    });
+    const r1 = rp(aliveAI);
+    reactions.push({ speakerId: r1.id, text: rp(ROLECLAIM_REACT) + rp(EMOJI_SUFFIX) });
     const maf = aliveAI.find((a) => a.role === "mafia");
     if (maf) {
       bump(maf.id, self.id, 2);
-      reactions.push({
-        speakerId: maf.id,
-        text: pick(["에이~ 진짜 맞아요? 가짜 같은데요.", "말로는 다들 특수직업이라고 하죠. 못 믿겠어요.", "저 사람 오히려 마피아가 거짓말하는 거 같은데요?"]),
-      });
+      reactions.push({ speakerId: maf.id, text: rp(DISCREDIT_LINES) + rp(EMOJI_SUFFIX) });
     }
   } else if (isDefend) {
     const maf = aliveAI.find((a) => a.role === "mafia");
     if (maf) {
       bump(maf.id, self.id, 1);
-      reactions.push({
-        speakerId: maf.id,
-        text: pick(["말로는 다들 시민이라고 하죠...", "그걸 어떻게 믿어요? 좀 더 지켜볼게요.", "변명이 너무 빠른데요? 수상해요."]),
-      });
+      reactions.push({ speakerId: maf.id, text: rp(DOUBT_LINES) + rp(EMOJI_SUFFIX) });
     }
     const cit = aliveAI.find((a) => ROLE_INFO[a.role].team === "citizen" && a.id !== maf?.id);
-    if (cit) {
-      reactions.push({
-        speakerId: cit.id,
-        text: pick(["일단 믿어볼게요. 대신 수상하게 굴지 마세요!", "알겠어요, 그럼 같이 마피아 찾아봐요.", "좋아요, 협력합시다!"]),
-      });
-    }
+    if (cit) reactions.push({ speakerId: cit.id, text: rp(TRUST_LINES) + rp(EMOJI_SUFFIX) });
   } else {
-    const n = 1 + (Math.random() < 0.5 ? 1 : 0);
-    const chosen = shuffle(aliveAI).slice(0, n);
-    for (const r of chosen)
-      reactions.push({
-        speakerId: r.id,
-        text: pick([
-          "무슨 근거로요?",
-          "흠... 일리 있네요.",
-          "저도 잘 모르겠어요.",
-          "계속 얘기해봐요, 듣고 있어요.",
-          "그래서 누구를 의심하시는 거예요?",
-          "동의해요!",
-          "좀 더 단서가 필요해요.",
-        ]),
-      });
+    const n = 1 + (chance(0.5) ? 1 : 0);
+    const pool = [...GENERAL_LINES, ...QUESTION_LINES];
+    for (const r of shuffle(aliveAI).slice(0, n)) {
+      reactions.push({ speakerId: r.id, text: rp(pool) + rp(EMOJI_SUFFIX) });
+    }
   }
 
   return { reactions, newSuspicion: susp };

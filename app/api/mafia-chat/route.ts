@@ -1,4 +1,5 @@
 import { generateObject, jsonSchema } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 
 // AI 게이트웨이 호출이 느릴 수 있으므로 여유 있게
 export const maxDuration = 30;
@@ -88,7 +89,7 @@ ${convo}
 발언자(name)는 반드시 위 생존 AI 이름 중에서만 고른다. 사람("나")은 발언자가 될 수 없다. 같은 사람이 연속으로 두 번 말하지 않게 한다.`;
 
     const { object } = await generateObject({
-      model: "anthropic/claude-haiku-4.5",
+      model: anthropic("claude-haiku-4-5"),
       system,
       prompt,
       temperature: 0.95,
