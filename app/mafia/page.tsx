@@ -301,6 +301,7 @@ export default function MafiaPage() {
   const [dayNum, setDayNum] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [aiTyping, setAiTyping] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<number | null>(null);
   const [nightActions, setNightActions] = useState<NightAction[]>([]);
   const [lastKilled, setLastKilled] = useState<Player | null>(null);
@@ -529,42 +530,123 @@ export default function MafiaPage() {
       return;
     }
 
-    // AI discussion
-    const alive = players.filter((p) => p.alive && !p.isPlayer && (lastKilled ? p.id !== lastKilled.id : true));
-    let delay = 500;
-    for (const ai of alive) {
-      setTimeout(() => {
-        const msg = generateDiscussion(ai, players, dayNum, lastKilled, lastVoted, knownMafia);
-        setChat((prev) => [...prev, { speakerId: ai.id, text: msg, isSystem: false }]);
-      }, delay);
-      delay += 800 + Math.random() * 600;
+    // AI 자유 토론 (LLM). 실패하면 규칙기반 대사로 폴백
+    setAiTyping(true);
+    (async () => {
+      const transcript = buildTranscript();
+      const lines = await fetchAiLines("discuss", transcript);
+      let finalDelay = 0;
+      if (lines.length) {
+        finalDelay = applyAiLines(lines);
+      } else {
+        const alive = players.filter((p) => p.alive && !p.isPlayer && (lastKilled ? p.id !== lastKilled.id : true));
+        let delay = 500;
+        for (const ai of alive) {
+          const captured = ai;
+          setTimeout(() => {
+            const msg = generateDiscussion(captured, players, dayNum, lastKilled, lastVoted, knownMafia);
+            setChat((prev) => [...prev, { speakerId: captured.id, text: msg, isSystem: false }]);
+          }, delay);
+          delay += 800 + Math.random() * 600;
+          finalDelay = delay;
+        }
+      }
+      setTimeout(() => setAiTyping(false), finalDelay + 200);
+    })();
+  };
+
+  // --- LLM 연동 헬퍼 ---
+  const reqPlayers = () => players.map((p) => ({ id: p.id, name: p.name, role: p.role, alive: p.alive, isPlayer: p.isPlayer }));
+
+  const buildTranscript = (extra?: { name: string; text: string }) => {
+    const base = chat
+      .filter((m) => !m.isSystem)
+      .map((m) => ({ name: players.find((p) => p.id === m.speakerId)?.name ?? "?", text: m.text }));
+    return extra ? [...base, extra] : base;
+  };
+
+  const fetchAiLines = async (
+    mode: "react" | "discuss",
+    transcript: { name: string; text: string }[],
+    playerMessage?: string
+  ): Promise<{ name: string; text: string; suspects?: string }[]> => {
+    try {
+      const res = await fetch("/api/mafia-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, dayNum, playerMessage, players: reqPlayers(), transcript }),
+      });
+      const data = await res.json();
+      return Array.isArray(data.lines) ? data.lines : [];
+    } catch {
+      return [];
     }
   };
 
-  const sendPlayerMessage = useCallback(() => {
+  // 반환: 마지막 메시지가 출력되는 시각(ms). AI들의 대사를 시간차로 출력하고 의심도 반영.
+  const applyAiLines = (lines: { name: string; text: string; suspects?: string }[]): number => {
+    const nameToId = new Map(players.filter((p) => p.alive).map((p) => [p.name, p.id] as const));
+    const susUpdates: { byId: number; targetId: number }[] = [];
+    let delay = 400;
+    let last = -99;
+    for (const ln of lines) {
+      const sid = nameToId.get(ln.name);
+      if (sid == null) continue;
+      const speaker = players.find((p) => p.id === sid);
+      if (!speaker || speaker.isPlayer || !speaker.alive || sid === last) continue;
+      last = sid;
+      const captured = ln.text;
+      setTimeout(() => setChat((prev) => [...prev, { speakerId: sid, text: captured, isSystem: false }]), delay);
+      delay += 700 + Math.random() * 500;
+      if (ln.suspects && ln.suspects.trim()) {
+        let tid = nameToId.get(ln.suspects.trim());
+        if (tid == null && (ln.suspects.includes("나") || ln.suspects.includes("당신"))) tid = 0;
+        if (tid != null && tid !== sid) susUpdates.push({ byId: sid, targetId: tid });
+      }
+    }
+    if (susUpdates.length) {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.isPlayer) return p;
+          const ups = susUpdates.filter((u) => u.byId === p.id);
+          if (!ups.length) return p;
+          const s = { ...p.suspicion };
+          for (const u of ups) s[u.targetId] = (s[u.targetId] ?? 0) + 2;
+          return { ...p, suspicion: s };
+        })
+      );
+    }
+    return delay;
+  };
+
+  // 규칙기반 폴백 반응. 반환: 마지막 출력 시각(ms)
+  const applyRuleReactions = (text: string): number => {
+    const { reactions, newSuspicion } = buildReactions(text, players);
+    setPlayers((prev) => prev.map((p) => (!p.isPlayer && newSuspicion[p.id] ? { ...p, suspicion: newSuspicion[p.id] } : p)));
+    let delay = 500;
+    for (const r of reactions) {
+      const rr = r;
+      setTimeout(() => setChat((prev) => [...prev, { speakerId: rr.speakerId, text: rr.text, isSystem: false }]), delay);
+      delay += 700 + Math.random() * 500;
+    }
+    return delay;
+  };
+
+  const sendPlayerMessage = async () => {
     const text = chatInput.trim();
-    if (!text || phase !== "day") return;
+    if (!text || phase !== "day" || aiTyping) return;
     const me = players.find((p) => p.isPlayer);
     if (!me || !me.alive) return;
 
     setChat((prev) => [...prev, { speakerId: me.id, text, isSystem: false }]);
     setChatInput("");
+    setAiTyping(true);
 
-    const { reactions, newSuspicion } = buildReactions(text, players);
-    // 의심도 반영 (투표에 영향)
-    setPlayers((prev) =>
-      prev.map((p) => (!p.isPlayer && newSuspicion[p.id] ? { ...p, suspicion: newSuspicion[p.id] } : p))
-    );
-    // AI 반응을 시간차로 출력
-    let delay = 500;
-    for (const r of reactions) {
-      const rr = r;
-      setTimeout(() => {
-        setChat((prev) => [...prev, { speakerId: rr.speakerId, text: rr.text, isSystem: false }]);
-      }, delay);
-      delay += 700 + Math.random() * 500;
-    }
-  }, [chatInput, phase, players]);
+    const transcript = buildTranscript({ name: "나", text });
+    const lines = await fetchAiLines("react", transcript, text);
+    const finalDelay = lines.length ? applyAiLines(lines) : applyRuleReactions(text);
+    setTimeout(() => setAiTyping(false), finalDelay + 200);
+  };
 
   const startVoting = () => {
     setPhase("voting");
@@ -894,6 +976,11 @@ export default function MafiaPage() {
               })}
             </div>
 
+            {/* AI 발언 중 표시 */}
+            {aiTyping && (
+              <p className="text-center text-xs text-indigo-300 animate-pulse">🤖 AI들이 이야기하는 중...</p>
+            )}
+
             {/* 내 채팅 입력 */}
             {myPlayer?.alive ? (
               <div className="flex gap-2">
@@ -903,13 +990,14 @@ export default function MafiaPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") sendPlayerMessage();
                   }}
+                  disabled={aiTyping}
                   maxLength={80}
-                  placeholder="의견을 말해보세요! 예: 민수님이 의심돼요"
-                  className="flex-1 rounded-full border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-400"
+                  placeholder={aiTyping ? "AI들이 말하는 중..." : "의견을 말해보세요! 예: 민수야 너 마피아지?"}
+                  className="flex-1 rounded-full border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-400 disabled:opacity-50"
                 />
                 <button
                   onClick={sendPlayerMessage}
-                  disabled={!chatInput.trim()}
+                  disabled={!chatInput.trim() || aiTyping}
                   className="rounded-full bg-indigo-500 px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
                 >
                   전송
@@ -919,7 +1007,7 @@ export default function MafiaPage() {
               <p className="text-center text-xs text-gray-500">💀 당신은 사망하여 발언할 수 없습니다 (지켜보세요)</p>
             )}
             <p className="text-center text-[11px] text-gray-500">
-              💬 이름을 넣어 의심하거나 변호해보세요. AI들이 반응하고 의심도가 바뀝니다!
+              💬 AI들이 진짜로 자유롭게 대답해요! 이름을 넣어 의심하거나 변호해보세요. 대화가 투표에도 영향을 줍니다.
             </p>
 
             <button onClick={startVoting} className="w-full rounded-full bg-gradient-to-r from-rose-500 to-red-600 py-3 font-bold shadow-lg transition-transform hover:scale-105 active:scale-95">
