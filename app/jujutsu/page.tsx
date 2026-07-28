@@ -127,7 +127,83 @@ function getPlayerGrade(lv: number): typeof PLAYER_GRADES[0] {
   return [...PLAYER_GRADES].reverse().find((g) => lv >= g.level) || PLAYER_GRADES[0];
 }
 
-type Screen = "hub" | "battle" | "techniques" | "victory" | "defeat";
+type Screen = "hub" | "battle" | "techniques" | "victory" | "defeat" | "gacha";
+
+// ===== 주술 뽑기(가챠) =====
+type GachaRarity = "normal" | "rare" | "legend" | "special";
+interface GachaChar { id: string; name: string; emoji: string; rarity: GachaRarity }
+const GACHA_RARITY: Record<GachaRarity, { name: string; weight: number; color: string; ring: string; emoji: string }> = {
+  normal: { name: "일반", weight: 85, color: "text-gray-300", ring: "border-gray-500", emoji: "⚪" },
+  rare: { name: "희귀", weight: 70, color: "text-blue-300", ring: "border-blue-400", emoji: "🔵" },
+  legend: { name: "전설", weight: 43, color: "text-purple-300", ring: "border-purple-400", emoji: "🟣" },
+  special: { name: "특급", weight: 35, color: "text-yellow-300", ring: "border-yellow-400", emoji: "👑" },
+};
+const GACHA_POOL: GachaChar[] = [
+  // 특급
+  { id: "sukuna", name: "료멘 스쿠나", emoji: "👹", rarity: "special" },
+  { id: "gojo", name: "고죠 사토루", emoji: "🕶️", rarity: "special" },
+  { id: "mahito_g", name: "마히토", emoji: "👤", rarity: "special" },
+  { id: "geto_g", name: "게토 스구루", emoji: "😏", rarity: "special" },
+  { id: "kenjaku", name: "켄자쿠", emoji: "🧠", rarity: "special" },
+  // 전설
+  { id: "itadori", name: "이타도리 유지", emoji: "🥋", rarity: "legend" },
+  { id: "megumi", name: "후시구로 메구미", emoji: "🐕", rarity: "legend" },
+  { id: "nobara", name: "쿠기사키 노바라", emoji: "🔨", rarity: "legend" },
+  { id: "nanami", name: "나나미 켄토", emoji: "🧥", rarity: "legend" },
+  { id: "choso_g", name: "초소", emoji: "🩸", rarity: "legend" },
+  // 희귀
+  { id: "panda", name: "팬더", emoji: "🐼", rarity: "rare" },
+  { id: "inumaki", name: "이누마키 토게", emoji: "🍙", rarity: "rare" },
+  { id: "maki", name: "젠인 마키", emoji: "🗡️", rarity: "rare" },
+  { id: "todo", name: "토도 아오이", emoji: "🫰", rarity: "rare" },
+  { id: "yuta", name: "옷코츠 유타", emoji: "⚔️", rarity: "rare" },
+  // 일반
+  { id: "student", name: "주술고전 학생", emoji: "🎒", rarity: "normal" },
+  { id: "assistant", name: "보조감독", emoji: "👔", rarity: "normal" },
+  { id: "cursebug", name: "저주 벌레", emoji: "🐛", rarity: "normal" },
+  { id: "flyhead", name: "파리머리", emoji: "🪰", rarity: "normal" },
+  { id: "rookie", name: "신입 주술사", emoji: "🔰", rarity: "normal" },
+];
+const GACHA_COST = 300;
+const GACHA_PITY = 130; // 130번째 뽑기에 특급 확정
+const GACHA_KEY = "jujutsu_gacha";
+
+// 캐릭터별 주술 (뽑은 캐릭터만 사용 가능). domain=영역전개(도메인 샤드 필요), ultimate=최대 스킬(최대 스크롤 필요)
+const CHAR_TECH: Record<string, { normal: string[]; domain: string; ultimate: string }> = {
+  gojo: { normal: ["무하한(무량공처)", "술식반전 '적'", "술식순전 '창'"], domain: "영역전개 · 무량공처", ultimate: "허식 '자(紫)'" },
+  sukuna: { normal: ["해(解) 연격", "봉(捌) 참격"], domain: "영역전개 · 복마어주자", ultimate: "개전(開展) · 어주자" },
+  mahito_g: { normal: ["무위전변", "자충어신"], domain: "영역전개 · 자폐원돈과", ultimate: "진인 · 극의 형태" },
+  geto_g: { normal: ["저주령 조작", "주술 회유"], domain: "영역전개 · 옥초", ultimate: "저주령 대량방출" },
+  kenjaku: { normal: ["술식 복제", "저주 조종"], domain: "영역전개 · 태장맥도", ultimate: "천 년의 계략" },
+  itadori: { normal: ["흑섬(黑閃)", "이차 발산", "발경"], domain: "영역전개 · 해방", ultimate: "흑섬 연속 작렬" },
+  megumi: { normal: ["옥견", "대사(大蛇)", "마령"], domain: "영역전개 · 감뢰신람전어전", ultimate: "마허라 소환" },
+  nobara: { normal: ["공진", "시침(時針)"], domain: "영역전개 · 짚인형 술식", ultimate: "공진 · 최대출력" },
+  nanami: { normal: ["칠삼(七三)의 도", "비율 절단"], domain: "영역전개 · 라티오", ultimate: "중과 · 오버타임" },
+  choso_g: { normal: ["천유혈사 · 경(穿血)", "적린약동"], domain: "영역전개 · 혈액 영역", ultimate: "누혈(縷血)" },
+  panda: { normal: ["돌격 코어", "고릴라 모드"], domain: "영역전개 · 삼형제 각성", ultimate: "고릴라 난타" },
+  inumaki: { normal: ["주언 '가라'", "주언 '터져'"], domain: "영역전개 · 주언 폭주", ultimate: "주언 '으깨져'" },
+  maki: { normal: ["주구 검술", "완력 강타"], domain: "영역전개 · 천여주박 해방", ultimate: "필살 참격" },
+  todo: { normal: ["부기우기", "박수 순간이동"], domain: "영역전개 · 부기우기 무한", ultimate: "필중 콤비네이션" },
+  yuta: { normal: ["리카 소환", "술식 모방"], domain: "영역전개 · 리카 완전현현", ultimate: "순애의 리카" },
+  student: { normal: ["기본 주력", "방어 자세"], domain: "영역전개 · 훈련장", ultimate: "전력 일격" },
+  assistant: { normal: ["보급 지원", "정찰"], domain: "영역전개 · 지원 영역", ultimate: "긴급 호출" },
+  cursebug: { normal: ["물어뜯기", "증식"], domain: "영역전개 · 벌레 무리", ultimate: "대증식" },
+  flyhead: { normal: ["돌진", "무리 소환"], domain: "영역전개 · 파리 떼", ultimate: "떼 공격" },
+  rookie: { normal: ["주먹질", "주력 방출"], domain: "영역전개 · 각성", ultimate: "혼신의 일격" },
+};
+
+function rollRarity(): GachaRarity {
+  const total = GACHA_RARITY.normal.weight + GACHA_RARITY.rare.weight + GACHA_RARITY.legend.weight + GACHA_RARITY.special.weight;
+  let r = Math.random() * total;
+  if ((r -= GACHA_RARITY.normal.weight) < 0) return "normal";
+  if ((r -= GACHA_RARITY.rare.weight) < 0) return "rare";
+  if ((r -= GACHA_RARITY.legend.weight) < 0) return "legend";
+  return "special";
+}
+function pickFromRarity(rarity: GachaRarity): GachaChar {
+  const list = GACHA_POOL.filter(c => c.rarity === rarity);
+  return list[Math.floor(Math.random() * list.length)];
+}
 
 const STORAGE_KEY = "jujutsu_save";
 const MAX_OFFLINE_MINUTES = 480; // 8시간 최대
@@ -170,6 +246,62 @@ export default function JujutsuPage() {
   const [offlineReward, setOfflineReward] = useState<OfflineReward | null>(null);
   const [loaded, setLoaded] = useState(false);
   const cdTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 가챠 상태
+  const [pity, setPity] = useState(0);
+  const [collection, setCollection] = useState<Record<string, number>>({});
+  const [pullResults, setPullResults] = useState<GachaChar[]>([]);
+  const [selectedChar, setSelectedChar] = useState<string | null>(null);
+  const [castFx, setCastFx] = useState<{ name: string; kind: "normal" | "domain" | "ultimate" } | null>(null);
+  const [gachaLoaded, setGachaLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(GACHA_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        setPity(d.pity || 0); setCollection(d.collection || {});
+      }
+    } catch { /* ignore */ }
+    setGachaLoaded(true);
+  }, []);
+  // 자동 저장
+  useEffect(() => {
+    if (!gachaLoaded) return;
+    try { localStorage.setItem(GACHA_KEY, JSON.stringify({ pity, collection })); } catch { /* ignore */ }
+  }, [pity, collection, gachaLoaded]);
+
+  const doPull = useCallback((count: number) => {
+    const cost = count === 10 ? GACHA_COST * 10 - 500 : GACHA_COST;
+    setMoney(m => {
+      if (m < cost) return m;
+      let p = pity;
+      const results: GachaChar[] = [];
+      for (let i = 0; i < count; i++) {
+        p++;
+        let rarity: GachaRarity;
+        if (p >= GACHA_PITY) rarity = "special"; else rarity = rollRarity();
+        if (rarity === "special") p = 0;
+        results.push(pickFromRarity(rarity));
+      }
+      setPity(p);
+      setPullResults(results);
+      setCollection(prev => {
+        const n = { ...prev };
+        results.forEach(c => { n[c.id] = (n[c.id] || 0) + 1; });
+        return n;
+      });
+      return m - cost;
+    });
+  }, [pity]);
+
+  const showCast = (name: string, kind: "normal" | "domain" | "ultimate") => {
+    setCastFx({ name, kind });
+    setTimeout(() => setCastFx(null), 1600);
+  };
+  const castNormal = (name: string) => showCast(name, "normal");
+  const useDomain = (name: string) => showCast(name, "domain");
+  const useUltimate = (name: string) => showCast(name, "ultimate");
 
   const gradeInfo = getPlayerGrade(level);
   const grade = GRADE_INFO[gradeInfo.grade];
@@ -449,6 +581,11 @@ export default function JujutsuPage() {
               </button>
             </div>
 
+            <button onClick={() => setScreen("gacha")}
+              className="w-full rounded-2xl border border-fuchsia-500 bg-gradient-to-r from-fuchsia-900/50 to-purple-900/50 p-3 text-center font-bold transition-all hover:from-fuchsia-800/50 hover:to-purple-800/50 active:scale-95 shadow-[0_0_12px_rgba(232,121,249,0.3)]">
+              🔮 주술 뽑기 (가챠) <span className="text-[11px] text-fuchsia-300">특급 확정 천장 {GACHA_PITY}회</span>
+            </button>
+
             <div>
               <h3 className="mb-2 text-center text-sm font-bold text-red-300">☠️ 저주령 토벌 임무</h3>
               <div className="grid grid-cols-2 gap-2">
@@ -577,6 +714,135 @@ export default function JujutsuPage() {
             <button onClick={toHub} className="mt-4 rounded-full bg-gradient-to-r from-slate-600 to-slate-700 px-8 py-3 font-bold shadow-lg transition-transform hover:scale-105 active:scale-95">
               돌아가기 🏘️
             </button>
+          </div>
+        )}
+
+        {/* --- 주술 뽑기 (가챠) --- */}
+        {screen === "gacha" && (
+          <div className="w-full max-w-lg space-y-4">
+            <div className="flex items-center justify-between">
+              <button onClick={() => setScreen("hub")} className="text-sm text-purple-300 hover:text-white">← 돌아가기</button>
+              <h3 className="text-lg font-extrabold bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent">🔮 주술 뽑기</h3>
+              <span className="text-yellow-400 text-sm">💰 {money.toLocaleString()}</span>
+            </div>
+
+            {/* 확률 안내 */}
+            <div className="rounded-xl bg-slate-800/60 p-3 text-xs">
+              <div className="mb-1 font-bold text-slate-300">✨ 등급별 확률 (가중치)</div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {(["special", "legend", "rare", "normal"] as GachaRarity[]).map(r => {
+                  const info = GACHA_RARITY[r];
+                  const total = 85 + 70 + 43 + 35;
+                  return <span key={r} className={info.color}>{info.emoji} {info.name} {((info.weight / total) * 100).toFixed(1)}%</span>;
+                })}
+              </div>
+              <div className="mt-1 text-fuchsia-300">🎯 천장: {pity}/{GACHA_PITY} (130번째에 특급 확정!)</div>
+            </div>
+
+            {/* 뽑기 결과 */}
+            {pullResults.length > 0 && (
+              <div className="rounded-xl border border-fuchsia-500/40 bg-black/40 p-3">
+                <div className="mb-2 text-center text-xs font-bold text-fuchsia-300">뽑기 결과 (캐릭터를 눌러 스킬 사용!) {pullResults.some(c => c.rarity === "special") && "— ✨특급 획득!✨"}</div>
+                <div className="grid grid-cols-5 gap-2">
+                  {pullResults.map((c, i) => {
+                    const info = GACHA_RARITY[c.rarity];
+                    return (
+                      <button key={i} onClick={() => setSelectedChar(c.id)} className={`flex flex-col items-center rounded-lg border-2 ${info.ring} bg-slate-900/70 p-1 hover:brightness-125 active:scale-95 ${c.rarity === "special" ? "shadow-[0_0_10px_rgba(234,179,8,0.7)]" : ""}`}>
+                        <span className="text-2xl">{c.emoji}</span>
+                        <span className={`text-[8px] font-bold ${info.color}`}>{info.name}</span>
+                        <span className="text-[8px] text-gray-400 text-center leading-tight">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 뽑기 버튼 */}
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => doPull(1)} disabled={money < GACHA_COST}
+                className="rounded-2xl border border-fuchsia-600 bg-fuchsia-900/40 p-4 text-center font-bold transition-all hover:bg-fuchsia-800/40 active:scale-95 disabled:opacity-40">
+                🔮 1회 뽑기<br /><span className="text-xs text-yellow-300">💰 {GACHA_COST}</span>
+              </button>
+              <button onClick={() => doPull(10)} disabled={money < GACHA_COST * 10 - 500}
+                className="rounded-2xl border border-purple-500 bg-gradient-to-b from-purple-800/50 to-fuchsia-800/50 p-4 text-center font-bold transition-all hover:from-purple-700/50 active:scale-95 disabled:opacity-40">
+                🔮 10연차<br /><span className="text-xs text-yellow-300">💰 {(GACHA_COST * 10 - 500).toLocaleString()} (할인!)</span>
+              </button>
+            </div>
+
+            {/* 컬렉션 */}
+            <div>
+              <h4 className="mb-2 text-sm font-bold text-slate-300">📖 도감 ({Object.keys(collection).length}/{GACHA_POOL.length})</h4>
+              <div className="grid grid-cols-5 gap-2">
+                {GACHA_POOL.map(c => {
+                  const owned = collection[c.id] || 0;
+                  const info = GACHA_RARITY[c.rarity];
+                  return (
+                    <button key={c.id} onClick={() => owned && setSelectedChar(c.id)} disabled={!owned}
+                      className={`flex flex-col items-center rounded-lg border p-1 ${owned ? info.ring + " bg-slate-900/70 hover:brightness-125 active:scale-95" : "border-gray-800 bg-black/40 opacity-40 cursor-not-allowed"}`}>
+                      <span className="text-2xl">{owned ? c.emoji : "❔"}</span>
+                      <span className={`text-[8px] font-bold ${owned ? info.color : "text-gray-600"}`}>{owned ? info.name : "???"}</span>
+                      <span className="text-[8px] text-gray-400 text-center leading-tight">{owned ? c.name : "미획득"}</span>
+                      {owned > 1 && <span className="text-[8px] text-yellow-400">x{owned}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-center text-[10px] text-slate-500">보유 캐릭터를 눌러 주술을 사용해보세요!</p>
+            </div>
+
+            {/* 캐릭터 주술 사용 창 */}
+            {selectedChar && (() => {
+              const c = GACHA_POOL.find(x => x.id === selectedChar);
+              const tech = CHAR_TECH[selectedChar];
+              if (!c || !tech) return null;
+              const info = GACHA_RARITY[c.rarity];
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setSelectedChar(null)}>
+                  <div className="w-full max-w-sm rounded-2xl border-2 border-fuchsia-500/60 bg-slate-900 p-4" onClick={e => e.stopPropagation()}>
+                    <div className="text-center">
+                      <div className="text-5xl">{c.emoji}</div>
+                      <div className="font-extrabold">{c.name}</div>
+                      <div className={`text-xs ${info.color}`}>{info.emoji} {info.name}</div>
+                    </div>
+                    <div className="mt-3 space-y-1.5">
+                      <div className="text-xs font-bold text-slate-400">🌀 주술 (자유 사용)</div>
+                      {tech.normal.map(t => (
+                        <button key={t} onClick={() => castNormal(t)} className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 p-2 text-sm text-left active:scale-95">🌀 {t}</button>
+                      ))}
+                      <div className="mt-2 text-xs font-bold text-fuchsia-400">🌌 영역전개</div>
+                      <button onClick={() => useDomain(tech.domain)}
+                        className="w-full rounded-lg bg-fuchsia-800 hover:bg-fuchsia-700 active:scale-95 p-2 text-sm text-left">
+                        🌌 {tech.domain}
+                      </button>
+                      <div className="mt-2 text-xs font-bold text-yellow-400">💥 최대 스킬</div>
+                      <button onClick={() => useUltimate(tech.ultimate)}
+                        className="w-full rounded-lg bg-yellow-700 hover:bg-yellow-600 active:scale-95 p-2 text-sm text-left">
+                        💥 {tech.ultimate}
+                      </button>
+                    </div>
+                    <button onClick={() => setSelectedChar(null)} className="mt-3 w-full rounded-lg bg-slate-700 py-2 text-sm hover:bg-slate-600">닫기</button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 주술 발동 연출 */}
+            {castFx && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
+                <div className="absolute inset-0 animate-pulse" style={{
+                  background: castFx.kind === "domain"
+                    ? "radial-gradient(circle, rgba(232,121,249,0.5), transparent 70%)"
+                    : castFx.kind === "ultimate"
+                      ? "radial-gradient(circle, rgba(234,179,8,0.5), transparent 70%)"
+                      : "radial-gradient(circle, rgba(56,189,248,0.4), transparent 70%)",
+                }} />
+                <div className="relative text-center">
+                  <div className="text-sm font-bold text-white/80">{castFx.kind === "domain" ? "🌌 영역전개!" : castFx.kind === "ultimate" ? "💥 최대 스킬!" : "🌀 주술 발동!"}</div>
+                  <div className={`text-3xl font-black animate-bounce ${castFx.kind === "domain" ? "text-fuchsia-300" : castFx.kind === "ultimate" ? "text-yellow-300" : "text-cyan-300"}`}>{castFx.name}</div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

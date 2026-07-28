@@ -59,6 +59,33 @@ const LOCATIONS: Location[] = [
   { id: "navigation", name: "조종실", emoji: "🧭", tasks: ["항로 설정", "방향 조정"], connectedTo: ["hallway_lower", "shields"] },
 ];
 
+/* ───── 맵 좌표 (% 기준, 자유이동용) ───── */
+const ROOM_POS: Record<string, { x: number; y: number }> = {
+  cafeteria: { x: 50, y: 16 },
+  medbay: { x: 24, y: 26 },
+  admin: { x: 68, y: 34 },
+  hallway_upper: { x: 46, y: 40 },
+  security: { x: 22, y: 48 },
+  reactor: { x: 12, y: 40 },
+  storage: { x: 56, y: 62 },
+  electrical: { x: 26, y: 74 },
+  hallway_lower: { x: 52, y: 60 },
+  comms: { x: 78, y: 66 },
+  shields: { x: 74, y: 86 },
+  navigation: { x: 92, y: 52 },
+};
+// 플레이어와 가장 가까운 방 id 반환
+function nearestRoom(x: number, y: number): string {
+  let best = "cafeteria";
+  let bd = Infinity;
+  for (const id in ROOM_POS) {
+    const p = ROOM_POS[id];
+    const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+    if (d < bd) { bd = d; best = id; }
+  }
+  return best;
+}
+
 /* ───── 맵 ───── */
 interface MapConfig {
   id: string;
@@ -137,6 +164,17 @@ export default function AmongUsPage() {
   const [isImpostor, setIsImpostor] = useState(false);
   const [killCooldown, setKillCooldown] = useState(0);
   const [sabotageActive, setSabotageActive] = useState(false);
+
+  // 자유이동 (WASD)
+  const [playerPos, setPlayerPos] = useState({ x: ROOM_POS.cafeteria.x, y: ROOM_POS.cafeteria.y });
+  const posRef = useRef({ x: ROOM_POS.cafeteria.x, y: ROOM_POS.cafeteria.y });
+  const keysRef = useRef<Set<string>>(new Set());
+  const locRef = useRef("cafeteria");
+  const phaseRef = useRef<Phase>("lobby");
+  const screenRef = useRef<Screen>("main");
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
+  useEffect(() => { locRef.current = playerLocation; }, [playerLocation]);
 
   // 미션 모달
   const [missionOpen, setMissionOpen] = useState(false);
@@ -267,18 +305,13 @@ export default function AmongUsPage() {
     setPhase("result");
   }, []);
 
-  // 이동
-  const moveTo = useCallback((locId: string) => {
-    if (phase !== "tasks") return;
-    const currentLoc = LOCATIONS.find(l => l.id === playerLocation);
-    if (!currentLoc?.connectedTo.includes(locId)) return;
-    setPlayerLocation(locId);
-
+  // AI 시간 기반 틱 (이동 + 임포스터 자동 킬). 자유이동이라 주기적으로 실행됨.
+  const aiTick = useCallback(() => {
     // AI 이동
     setCrew(prev => prev.map(c => {
-      if (!c.isAlive) return c;
+      if (!c.isAlive || c.id === 0) return c;
       const cLoc = LOCATIONS.find(l => l.id === c.location);
-      if (cLoc && Math.random() < 0.4) {
+      if (cLoc && Math.random() < 0.5) {
         const newLoc = cLoc.connectedTo[Math.floor(Math.random() * cLoc.connectedTo.length)];
         return { ...c, location: newLoc, lastSeen: LOCATIONS.find(l => l.id === c.location)?.name || "" };
       }
@@ -288,24 +321,95 @@ export default function AmongUsPage() {
     // AI 임포스터 킬 (자동)
     setCrew(prev => {
       const updated = [...prev];
-      const imps = updated.filter(c => c.isImpostor && c.isAlive);
+      const imps = updated.filter(c => c.isImpostor && c.isAlive && c.id !== 0);
       for (const imp of imps) {
         const sameLocCrew = updated.filter(c => c.location === imp.location && !c.isImpostor && c.isAlive && c.id !== 0);
         const alone = updated.filter(c => c.location === imp.location && c.isAlive).length <= 2;
-        if (sameLocCrew.length > 0 && alone && Math.random() < 0.1) {
+        if (sameLocCrew.length > 0 && alone && Math.random() < 0.28) {
           const victim = sameLocCrew[Math.floor(Math.random() * sameLocCrew.length)];
           const idx = updated.findIndex(c => c.id === victim.id);
           if (idx >= 0) {
             updated[idx] = { ...updated[idx], isAlive: false };
-            setGameLog(prev => [...prev, { text: `💀 ${victim.name}(${victim.colorName})이(가) 살해당했다...`, type: "kill" }]);
+            setGameLog(prev => [...prev, { text: `💀 ${victim.name}(${victim.colorName})이(가) 어디선가 살해당했다...`, type: "kill" }]);
           }
         }
       }
       return updated;
     });
+  }, []);
 
-    setKillCooldown(c => Math.max(0, c - 1));
-  }, [phase, playerLocation]);
+  // WASD 키 입력
+  useEffect(() => {
+    const moveKeys = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
+    const down = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (moveKeys.has(k)) {
+        e.preventDefault();
+        keysRef.current.add(k);
+      }
+    };
+    const up = (e: KeyboardEvent) => keysRef.current.delete(e.key.toLowerCase());
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
+  // 자유이동 게임 루프
+  useEffect(() => {
+    let raf = 0;
+    const SPEED = 0.85;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      if (screenRef.current !== "play" || phaseRef.current !== "tasks" || missionOpen) return;
+      const k = keysRef.current;
+      let dx = 0, dy = 0;
+      if (k.has("a") || k.has("arrowleft")) dx -= 1;
+      if (k.has("d") || k.has("arrowright")) dx += 1;
+      if (k.has("w") || k.has("arrowup")) dy -= 1;
+      if (k.has("s") || k.has("arrowdown")) dy += 1;
+      if (dx === 0 && dy === 0) return;
+      const len = Math.hypot(dx, dy) || 1;
+      const p = posRef.current;
+      p.x = Math.max(4, Math.min(96, p.x + (dx / len) * SPEED));
+      p.y = Math.max(6, Math.min(94, p.y + (dy / len) * SPEED));
+      setPlayerPos({ x: p.x, y: p.y });
+      const near = nearestRoom(p.x, p.y);
+      if (near !== locRef.current) {
+        locRef.current = near;
+        setPlayerLocation(near);
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [missionOpen]);
+
+  // AI 시간 기반 틱
+  useEffect(() => {
+    if (!gameActive || phase !== "tasks") return;
+    const iv = setInterval(() => {
+      aiTick();
+      setKillCooldown(c => Math.max(0, c - 1));
+    }, 1600);
+    return () => clearInterval(iv);
+  }, [gameActive, phase, aiTick]);
+
+  // 태스크 페이즈 진입 시 플레이어를 현재 방 위치로 스폰
+  useEffect(() => {
+    if (phase === "tasks") {
+      const loc = ROOM_POS[playerLocation] ?? ROOM_POS.cafeteria;
+      posRef.current = { x: loc.x, y: loc.y };
+      setPlayerPos({ x: loc.x, y: loc.y });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  // 화면 D패드용 (모바일)
+  const pressKey = (k: string, on: boolean) => {
+    if (on) keysRef.current.add(k); else keysRef.current.delete(k);
+  };
 
   // 태스크 수행 — 미션 모달 열기
   const doTask = useCallback((taskIdx: number) => {
@@ -651,6 +755,57 @@ export default function AmongUsPage() {
 
           {sabotageActive && <div className="text-center text-red-400 text-xs font-bold mb-1 animate-pulse">⚠️ 사보타주 발생!!</div>}
 
+          {/* 2D 맵 (WASD 자유이동) */}
+          <div className="relative w-full rounded-xl mb-1 overflow-hidden border border-slate-700 bg-slate-900/60" style={{ aspectRatio: "5 / 4" }}>
+            {/* 방들 */}
+            {LOCATIONS.map(loc => {
+              const p = ROOM_POS[loc.id];
+              const isHere = playerLocation === loc.id;
+              const myTask = !isImpostor && playerTasks.some(t => t.location === loc.id && !t.done);
+              return (
+                <div key={loc.id} className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-base ${isHere ? "bg-cyan-600/70 ring-2 ring-cyan-300" : "bg-slate-700/60"}`}>
+                    {loc.emoji}
+                    {myTask && <span className="absolute -top-1 -right-1 text-xs">❗</span>}
+                  </div>
+                  <div className="text-[7px] text-gray-300 whitespace-nowrap leading-tight">{loc.name}</div>
+                </div>
+              );
+            })}
+            {/* 살아있는 크루원 */}
+            {crew.filter(c => c.isAlive && c.id !== 0).map(c => {
+              const p = ROOM_POS[c.location];
+              if (!p) return null;
+              const ox = ((c.id % 3) - 1) * 5;
+              const oy = (c.id % 2) * 5 + 6;
+              return (
+                <div key={c.id} className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{ left: `${p.x + ox}%`, top: `${p.y + oy}%` }}>
+                  <CrewmateAvatar color={c.color} size={20} />
+                </div>
+              );
+            })}
+            {/* 시체 */}
+            {crew.filter(c => !c.isAlive && !c.isEjected).map(c => {
+              const p = ROOM_POS[c.location];
+              if (!p) return null;
+              const ox = ((c.id % 3) - 1) * 5;
+              const oy = (c.id % 2) * 5 + 6;
+              return (
+                <div key={"dead" + c.id} className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-[5]" style={{ left: `${p.x + ox}%`, top: `${p.y + oy}%` }}>
+                  <CrewmateAvatar color={c.color} size={20} dead />
+                </div>
+              );
+            })}
+            {/* 나 */}
+            <div className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{ left: `${playerPos.x}%`, top: `${playerPos.y}%` }}>
+              <div className="relative">
+                <CrewmateAvatar color={playerColor.color} size={26} />
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] font-bold text-cyan-300">나</div>
+              </div>
+            </div>
+          </div>
+          <div className="text-center text-[10px] text-cyan-300 mb-2">🕹️ WASD / 방향키로 자유롭게 이동! (❗=태스크, 💀=시체)</div>
+
           {/* 현재 위치 */}
           <div className="bg-black/40 rounded-xl p-3 mb-2">
             <div className="text-sm font-bold mb-1">{currentLoc?.emoji} {currentLoc?.name}</div>
@@ -714,20 +869,26 @@ export default function AmongUsPage() {
             )}
           </div>
 
-          {/* 이동 */}
-          <div className="bg-black/30 rounded-xl p-2 mb-2">
-            <div className="text-xs font-bold mb-1">🚪 이동:</div>
-            <div className="flex gap-1 flex-wrap">
-              {currentLoc?.connectedTo.map(locId => {
-                const loc = LOCATIONS.find(l => l.id === locId);
-                const crewCount = crew.filter(c => c.isAlive && c.location === locId).length;
-                return (
-                  <button key={locId} onClick={() => moveTo(locId)}
-                    className="bg-gray-800 hover:bg-gray-700 rounded-lg px-2 py-1.5 text-xs">
-                    {loc?.emoji} {loc?.name} {crewCount > 0 && <span className="text-yellow-400">({crewCount})</span>}
-                  </button>
-                );
-              })}
+          {/* 이동 D패드 (모바일용, PC는 WASD) */}
+          <div className="flex justify-center mb-2 select-none touch-none">
+            <div className="grid grid-cols-3 gap-1" style={{ width: 156 }}>
+              {([
+                { k: "w", label: "▲", col: "col-start-2" },
+                { k: "a", label: "◀", col: "col-start-1 row-start-2" },
+                { k: "s", label: "▼", col: "col-start-2 row-start-2" },
+                { k: "d", label: "▶", col: "col-start-3 row-start-2" },
+              ] as const).map(b => (
+                <button
+                  key={b.k}
+                  className={`${b.col} bg-slate-700 active:bg-cyan-600 rounded-lg py-2 text-sm font-bold`}
+                  onPointerDown={(e) => { e.preventDefault(); pressKey(b.k, true); }}
+                  onPointerUp={() => pressKey(b.k, false)}
+                  onPointerLeave={() => pressKey(b.k, false)}
+                  onPointerCancel={() => pressKey(b.k, false)}
+                >
+                  {b.label}
+                </button>
+              ))}
             </div>
           </div>
 

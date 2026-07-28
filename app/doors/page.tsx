@@ -62,15 +62,17 @@ const ITEMS: RoomItem[] = [
   { id: "book", name: "낡은 책", emoji: "📕", type: "book", desc: "호텔의 비밀이 적혀있다..." },
 ];
 
+const LIGHTER = ITEMS.find((i) => i.id === "lighter")!; // 기본 지급 아이템
+
 // --- Room Generator ---
 function generateRoom(roomNum: number): Room {
   const hasCloset = Math.random() < 0.7;
   const hasBed = Math.random() < 0.5;
-  const hasKey = Math.random() < 0.15;
+  const hasKey = false; // 자물쇠/열쇠 제거 — 열쇠 안 나옴
   const hasChest = Math.random() < 0.3;
   const hasBook = Math.random() < 0.1;
   const isDark = roomNum > 10 && Math.random() < 0.2 + roomNum * 0.01;
-  const doorLocked = Math.random() < 0.15 + roomNum * 0.005;
+  const doorLocked = false; // 잠김 제거 — 모든 문이 항상 열림
 
   // Entity spawn
   let entity: Entity | null = null;
@@ -120,7 +122,7 @@ export default function DoorsPage() {
   const [room, setRoom] = useState<Room>(generateRoom(1));
   const [hp, setHp] = useState(100);
   const [maxHp] = useState(100);
-  const [inventory, setInventory] = useState<RoomItem[]>([]);
+  const [inventory, setInventory] = useState<RoomItem[]>(() => [LIGHTER]);
   const [keys, setKeys] = useState(0);
   const [lightOn, setLightOn] = useState(false);
   const [hasCrucifix, setHasCrucifix] = useState(false);
@@ -150,7 +152,7 @@ export default function DoorsPage() {
     setRoomNumber(1);
     setRoom(firstRoom);
     setHp(100);
-    setInventory([]);
+    setInventory([LIGHTER]);
     setKeys(0);
     setLightOn(false);
     setHasCrucifix(false);
@@ -424,7 +426,6 @@ export default function DoorsPage() {
             <span className="font-bold text-amber-400">🚪 {roomNumber}번 방</span>
             <div className="flex gap-3">
               <span>❤️ {hp}/{maxHp}</span>
-              <span className="text-yellow-400">🔑 {keys}</span>
               {hasCrucifix && <span>✝️</span>}
               {lightOn && <span>🔦</span>}
             </div>

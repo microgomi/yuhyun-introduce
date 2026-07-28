@@ -1142,6 +1142,13 @@ export default function Home() {
                 bg: "from-red-500 to-blue-600",
                 href: "/versus",
               },
+              {
+                emoji: "🔷",
+                title: "지오메트릭스",
+                desc: "가시를 점프로 피해 끝까지 달려라!",
+                bg: "from-indigo-500 to-cyan-500",
+                href: "/geometry",
+              },
             ].map((item) => {
               const Card = (
                 <div
