@@ -21,9 +21,17 @@ function beep(freq: number, dur: number, type: OscillatorType = "sine", vol = 0.
     o.start(t); o.stop(t + dur);
   } catch { /* ignore */ }
 }
-function sfx(kind: "pull" | "attack" | "special" | "defend" | "hurt" | "win" | "lose" | "summon") {
+function sfx(kind: "pull" | "attack" | "special" | "defend" | "hurt" | "win" | "lose" | "summon" | "glass") {
   switch (kind) {
     case "pull": beep(660, 0.1, "triangle"); setTimeout(() => beep(990, 0.14, "triangle"), 90); break;
+    case "glass": {
+      // 유리 깨지는 소리 — 날카로운 충돌 후 파편이 흩어지는 소리
+      beep(2400, 0.04, "square", 0.18);
+      beep(3200, 0.05, "sawtooth", 0.14);
+      const shards = [1800, 2600, 1500, 3000, 2100, 1300, 2800, 1700, 1100, 2400];
+      shards.forEach((f, i) => setTimeout(() => beep(f, 0.05, "triangle", 0.09), 60 + i * 45));
+      break;
+    }
     case "summon": [440, 660, 880, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.14, "sine"), i * 90)); break;
     case "attack": beep(320, 0.07, "square", 0.12); break;
     case "special": [200, 500, 800].forEach((f, i) => setTimeout(() => beep(f, 0.16, "sawtooth"), i * 70)); break;
@@ -533,18 +541,20 @@ export default function HeroGachaPage() {
       const rarityIdx = lp >= 999 ? 6 : pickRarity(pity); // 999번째 = 우주 확정
       setLuckyPity(lp >= 999 ? 0 : lp);
       const hero = pickHero(rarityIdx);
+      const epicPlus = rarityIdx >= 2; // 에픽 이상 — 유리 깨지는 소리
       const newHero = !collection.has(hero.id);
       addToCollection(hero);
       setPullResult(hero);
       setIsNew(newHero);
       setPity(rarityIdx >= 4 ? 0 : pity + 1);
       if (skipAnim) {
+        if (epicPlus) sfx("glass");
         setPullPhase("reveal");
         setScreen("result");
       } else {
         setPullPhase("shaking");
         setScreen("pull");
-        setTimeout(() => setPullPhase("cracking"), 1000);
+        setTimeout(() => { setPullPhase("cracking"); if (epicPlus) sfx("glass"); }, 1000);
         setTimeout(() => { setPullPhase("reveal"); setScreen("result"); }, 2000);
       }
     } else if (count >= 300000) {
@@ -578,6 +588,7 @@ export default function HeroGachaPage() {
           pool.forEach(h => topHeroes.push({ hero: h, n: Math.floor(counts[ri] / pool.length) }));
         }
       }
+      if (counts.slice(2).some(c => c > 0)) sfx("glass"); // 에픽 이상 포함 — 유리 깨지는 소리
       setBulkResult({ total: count, counts, topHeroes });
       setPullPhase("reveal");
       setScreen("result");
@@ -597,15 +608,17 @@ export default function HeroGachaPage() {
       }
       setPity(currentPity);
       setLuckyPity(lp);
+      const epicPlus = results.some(h => h.rarity >= 2); // 에픽 이상 포함 — 유리 깨지는 소리
       setMultiResults(results);
       setShowMulti(true);
       if (skipAnim) {
+        if (epicPlus) sfx("glass");
         setPullPhase("reveal");
         setScreen("result");
       } else {
         setPullPhase("shaking");
         setScreen("pull");
-        setTimeout(() => setPullPhase("cracking"), 1000);
+        setTimeout(() => { setPullPhase("cracking"); if (epicPlus) sfx("glass"); }, 1000);
         setTimeout(() => { setPullPhase("reveal"); setScreen("result"); }, 2000);
       }
     }
