@@ -25,11 +25,12 @@ function sfx(kind: "pull" | "attack" | "special" | "defend" | "hurt" | "win" | "
   switch (kind) {
     case "pull": beep(660, 0.1, "triangle"); setTimeout(() => beep(990, 0.14, "triangle"), 90); break;
     case "glass": {
-      // 유리 깨지는 소리 — 날카로운 충돌 후 파편이 흩어지는 소리
-      beep(2400, 0.04, "square", 0.18);
-      beep(3200, 0.05, "sawtooth", 0.14);
-      const shards = [1800, 2600, 1500, 3000, 2100, 1300, 2800, 1700, 1100, 2400];
-      shards.forEach((f, i) => setTimeout(() => beep(f, 0.05, "triangle", 0.09), 60 + i * 45));
+      // 쨍그랑! — 밝게 챙~ 하고 울린 뒤 유리 파편이 튀는 소리
+      beep(3520, 0.28, "sine", 0.17);   // 밝은 금속성 '챙~' 울림
+      beep(2637, 0.24, "sine", 0.12);   // 화음
+      beep(4200, 0.05, "square", 0.13); // 부딪히는 순간 날카로운 충돌
+      const shards = [2800, 3400, 2200, 3800, 2500, 3100, 1900, 3600, 2300, 2900, 1700, 3300];
+      shards.forEach((f, i) => setTimeout(() => beep(f, 0.045, "triangle", 0.08), 70 + i * 40));
       break;
     }
     case "summon": [440, 660, 880, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.14, "sine"), i * 90)); break;
