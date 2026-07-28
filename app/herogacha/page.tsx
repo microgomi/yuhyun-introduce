@@ -24,22 +24,24 @@ function beep(freq: number, dur: number, type: OscillatorType = "sine", vol = 0.
 function sfx(kind: "pull" | "attack" | "special" | "defend" | "hurt" | "win" | "lose" | "summon" | "glass" | "boom") {
   switch (kind) {
     case "boom": {
-      // 콰콰콰과광!!! — 어어어어엄청 크고 웅장한 폭발 소리 (전설 이상)
-      beep(80, 1.6, "sawtooth", 0.85);   // 초저음 폭발 굉음 (엄청 크게)
-      beep(45, 2.0, "sine", 0.8);        // 뱃속 울리는 저음
-      beep(120, 1.2, "square", 0.7);     // 강력한 충격파
-      beep(180, 0.8, "sawtooth", 0.6);   // 초기 폭발음
-      beep(260, 0.5, "square", 0.5);     // 날카로운 파열음
-      beep(30, 2.4, "sine", 0.7);        // 지축을 흔드는 초저주파
-      // 2차·3차 연쇄 폭발 (쿵! 쿵! 쿵!)
-      [0.28, 0.6, 0.95, 1.35].forEach((t, i) => setTimeout(() => {
-        beep(90 - i * 12, 0.7, "sawtooth", 0.65);
-        beep(50 - i * 6, 0.9, "sine", 0.6);
+      // 콰콰콰콰과광!!!! — 우주가 터지는 초초초대형 폭발 소리 (전설 이상)
+      beep(70, 2.2, "sawtooth", 1.0);    // 초저음 폭발 굉음 (최대치)
+      beep(40, 2.6, "sine", 1.0);        // 뱃속 울리는 저음
+      beep(110, 1.6, "square", 0.9);     // 강력한 충격파
+      beep(170, 1.0, "sawtooth", 0.8);   // 초기 폭발음
+      beep(250, 0.6, "square", 0.7);     // 날카로운 파열음
+      beep(24, 3.0, "sine", 1.0);        // 지축을 흔드는 초저주파
+      beep(340, 0.4, "sawtooth", 0.6);   // 폭발 첫 타격음
+      // 연쇄 대폭발 (쿵! 쿵! 쿵! 쿵! 쿵! 쿵!)
+      [0.25, 0.5, 0.8, 1.15, 1.5, 1.9].forEach((t, i) => setTimeout(() => {
+        beep(90 - i * 10, 0.8, "sawtooth", 0.9);
+        beep(48 - i * 5, 1.0, "sine", 0.85);
+        beep(150 - i * 15, 0.5, "square", 0.6);
       }, t * 1000));
-      // 우르릉 쿵쿵 긴 여운
-      [70, 50, 90, 45, 60, 40, 75, 38].forEach((f, i) => setTimeout(() => beep(f, 0.55, "sine", 0.4), 200 + i * 150));
-      // 파편·잔해 튀는 고음
-      [1200, 900, 1500, 700, 1800, 1000, 1400, 800, 1600].forEach((f, i) => setTimeout(() => beep(f, 0.07, "triangle", 0.15), 40 + i * 70));
+      // 우르릉 쿵쿵 아주 긴 여운
+      [70, 50, 90, 45, 60, 40, 75, 38, 55, 42, 65, 36].forEach((f, i) => setTimeout(() => beep(f, 0.6, "sine", 0.55), 200 + i * 140));
+      // 파편·잔해 튀는 고음 (사방으로!)
+      [1200, 900, 1500, 700, 1800, 1000, 1400, 800, 1600, 1100, 2000, 950].forEach((f, i) => setTimeout(() => beep(f, 0.07, "triangle", 0.2), 30 + i * 60));
       break;
     }
     case "pull": beep(660, 0.1, "triangle"); setTimeout(() => beep(990, 0.14, "triangle"), 90); break;
@@ -166,6 +168,18 @@ const EXTRA_WORLD_DEFS: { n: number; emoji: string; color: string; glow: string;
   { n: 10, emoji: "✴️", color: "#f08c00", glow: "#ffd43b", heroes: [{ name: "만물의 근원", emoji: "🔆" }, { name: "무의 지배자", emoji: "⚫" }, { name: "10차원 절대자", emoji: "💫" }] },
   { n: 11, emoji: "🔯", color: "#ae3ec9", glow: "#e599f7", heroes: [{ name: "모든 차원의 왕", emoji: "👑" }, { name: "최종 존재", emoji: "🌠" }, { name: "11차원 신 그 자체", emoji: "🌀" }] },
 ];
+// 12차원 ~ 50차원 (자동 생성)
+const DIM_EMOJIS = ["🌠", "🕸️", "🌀", "💠", "🌌", "✴️", "🔯", "🪐", "☄️", "🌏", "🔮", "⚛️", "🧿", "♾️", "🎆", "🌋", "🗿", "🛰️", "🌐", "💫"];
+const DIM_COLORS: [string, string][] = [["#7048e8", "#b197fc"], ["#0ca678", "#63e6be"], ["#e8590c", "#ffa94d"], ["#1971c2", "#74c0fc"], ["#c2255c", "#faa2c1"], ["#f08c00", "#ffd43b"], ["#ae3ec9", "#e599f7"], ["#2f9e44", "#8ce99a"], ["#e03131", "#ffa8a8"], ["#1098ad", "#66d9e8"]];
+const DIM_HERO_EMOJIS = ["🌟", "✂️", "🔭", "🎯", "🎲", "🧬", "♻️", "⏱️", "🔱", "🪄", "🪞", "👑", "⚖️", "☯️", "🌈", "🔆", "⚫", "💫", "🪐", "☄️", "🌍", "🛸", "👁️", "🧠", "⚡", "🔥", "❄️", "🌪️", "🕳️", "💥"];
+const DIM_HERO_TITLES = ["지배자", "초월신", "그 자체"];
+for (let n = 12; n <= 50; n++) {
+  const c = DIM_COLORS[n % DIM_COLORS.length];
+  EXTRA_WORLD_DEFS.push({
+    n, emoji: DIM_EMOJIS[n % DIM_EMOJIS.length], color: c[0], glow: c[1],
+    heroes: DIM_HERO_TITLES.map((t, hi) => ({ name: `${n}차원 ${t}`, emoji: DIM_HERO_EMOJIS[(n * 3 + hi) % DIM_HERO_EMOJIS.length] })),
+  });
+}
 const EXTRA_WORLDS = EXTRA_WORLD_DEFS.map((def, wi) => {
   const rarityIdx = RARITIES.length;
   RARITIES.push({ name: `${def.n}차원신`, color: def.color, glow: def.glow, bg: "#f8f0fc", chance: 0, stars: 11 + wi });
@@ -191,6 +205,17 @@ const DIM_BOSSES: Record<number, DimBoss> = {
   10: { id: "dim10", name: "무의 군주", emoji: "⚫", power: 2500000000000000, reward: 20000000000, grant: null, ability: "shield", abilityName: "공허 방벽" },
   11: { id: "dim11", name: "종말의 왕", emoji: "🌀", power: 20000000000000000, reward: 100000000000, grant: null, ability: "burst", abilityName: "종말" },
 };
+// 12차원 ~ 50차원 보스 (자동 생성)
+const DIM_BOSS_EMOJIS = ["👹", "💀", "🐲", "🕷️", "😈", "🌩️", "🦑", "👾", "🐙", "🦠", "🌪️", "🔥", "❄️", "☢️", "🕳️"];
+const DIM_BOSS_ABILITIES: BossAbility[] = ["burst", "poison", "lifesteal", "shield"];
+for (let n = 12; n <= 50; n++) {
+  DIM_BOSSES[n] = {
+    id: `dim${n}`, name: `${n}차원 종말군주`, emoji: DIM_BOSS_EMOJIS[n % DIM_BOSS_EMOJIS.length],
+    power: Math.round(2e16 * Math.pow(8, n - 11)),
+    reward: Math.round(1e11 * Math.pow(4, n - 11)),
+    grant: null, ability: DIM_BOSS_ABILITIES[n % DIM_BOSS_ABILITIES.length], abilityName: `${n}차원 붕괴`,
+  };
+}
 
 /* ───── 컬렉션 히어로 ───── */
 interface CollectedHero {
@@ -1250,7 +1275,7 @@ export default function HeroGachaPage() {
           {/* 5~11차원 (재료로 포탈 열기) */}
           <div className="mb-4 rounded-xl bg-black/30 p-3">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-bold text-cyan-300">🌌 상위 차원 (5~11)</span>
+              <span className="text-sm font-bold text-cyan-300">🌌 상위 차원 (5~50)</span>
               <span className="text-xs text-cyan-200">🔷 차원 조각: {shards.toLocaleString()}</span>
             </div>
             <p className="text-[10px] text-gray-400 mb-2">🔷 조각은 오토 사냥으로 모아요. 포탈을 열면 입장 가능!</p>
