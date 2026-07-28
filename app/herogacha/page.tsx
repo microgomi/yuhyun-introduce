@@ -24,15 +24,22 @@ function beep(freq: number, dur: number, type: OscillatorType = "sine", vol = 0.
 function sfx(kind: "pull" | "attack" | "special" | "defend" | "hurt" | "win" | "lose" | "summon" | "glass" | "boom") {
   switch (kind) {
     case "boom": {
-      // 콰과광!! — 크고 웅장한 폭발 소리 (전설 이상)
-      beep(90, 0.7, "sawtooth", 0.32);   // 낮고 묵직한 폭발 굉음
-      beep(55, 0.9, "sine", 0.3);        // 저음 울림
-      beep(140, 0.5, "square", 0.22);    // 충격파
-      beep(200, 0.35, "sawtooth", 0.18); // 초기 폭발음
-      // 잔향 — 우르릉 쿵쿵 여운
-      [70, 50, 90, 45, 60].forEach((f, i) => setTimeout(() => beep(f, 0.4, "sine", 0.16), 120 + i * 110));
-      // 파편 튀는 고음
-      [1200, 900, 1500, 700].forEach((f, i) => setTimeout(() => beep(f, 0.06, "triangle", 0.07), 40 + i * 60));
+      // 콰콰콰과광!!! — 어어어어엄청 크고 웅장한 폭발 소리 (전설 이상)
+      beep(80, 1.6, "sawtooth", 0.85);   // 초저음 폭발 굉음 (엄청 크게)
+      beep(45, 2.0, "sine", 0.8);        // 뱃속 울리는 저음
+      beep(120, 1.2, "square", 0.7);     // 강력한 충격파
+      beep(180, 0.8, "sawtooth", 0.6);   // 초기 폭발음
+      beep(260, 0.5, "square", 0.5);     // 날카로운 파열음
+      beep(30, 2.4, "sine", 0.7);        // 지축을 흔드는 초저주파
+      // 2차·3차 연쇄 폭발 (쿵! 쿵! 쿵!)
+      [0.28, 0.6, 0.95, 1.35].forEach((t, i) => setTimeout(() => {
+        beep(90 - i * 12, 0.7, "sawtooth", 0.65);
+        beep(50 - i * 6, 0.9, "sine", 0.6);
+      }, t * 1000));
+      // 우르릉 쿵쿵 긴 여운
+      [70, 50, 90, 45, 60, 40, 75, 38].forEach((f, i) => setTimeout(() => beep(f, 0.55, "sine", 0.4), 200 + i * 150));
+      // 파편·잔해 튀는 고음
+      [1200, 900, 1500, 700, 1800, 1000, 1400, 800, 1600].forEach((f, i) => setTimeout(() => beep(f, 0.07, "triangle", 0.15), 40 + i * 70));
       break;
     }
     case "pull": beep(660, 0.1, "triangle"); setTimeout(() => beep(990, 0.14, "triangle"), 90); break;
