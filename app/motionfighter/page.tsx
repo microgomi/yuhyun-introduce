@@ -113,6 +113,9 @@ export default function MotionFighter() {
   const [mode, setMode] = useState<ModeKey>("azure");
   const modeRef = useRef<ModeKey>("azure");
   useEffect(() => { modeRef.current = mode; }, [mode]);
+  const [twoP, setTwoP] = useState(false); // 2인 대전 (턴 번갈아 같은 조작)
+  const twoPRef = useRef(false);
+  useEffect(() => { twoPRef.current = twoP; }, [twoP]);
   const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false, reachUp: false, reachDown: false });
   const [reachPct, setReachPct] = useState(100);
   const reachRef = useRef(100);
@@ -128,17 +131,23 @@ export default function MotionFighter() {
     if (!keepWins) { setPWins(0); setCWins(0); }
   }, []);
 
+  // 현재 조작 가능한 사람 차례인가 (P1=항상, P2=2인모드일 때 c 차례)
+  const humanNow = () => g.current.turn === "p" || (twoPRef.current && g.current.turn === "c");
+  const actor = () => (g.current.turn === "p" ? g.current.p : g.current.c);
+
   const doAttack = useCallback((kind: Kind) => {
     const S = g.current;
-    if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.atk.active) return;
-    const air = S.p.yOff < -6;
+    if (phaseRef.current !== "fight" || S.over || !humanNow()) return;
+    const f = actor();
+    if (f.atk.active) return;
+    const air = f.yOff < -6;
     if (kind === "slam" && !air) { setMsg("⬇️내려찍기는 ⬆️점프 중에만 써요!"); return; } // 점프 전용
-    const a = S.p.atk;
+    const a = f.atk;
     S.pHit = false; // 이번 공격 명중 여부
     a.active = true; a.t = 0; a.hitDone = false; a.kind = kind; a.air = air;
-    if (legKind(kind)) a.aim = S.p.legAim;
+    if (legKind(kind)) a.aim = f.legAim;
     else if (kind === "slam") a.aim = air ? 1.2 : 0.85; // 내려찍기: 아래로 (점프 중이면 더 급하게)
-    else a.aim = S.p.aim; // punch / smash = 팔 각도
+    else a.aim = f.aim; // punch / smash = 팔 각도
     if (kind === "smash") beep(160, 0.14, "square", 0.12);
     else if (kind === "slam") beep(120, 0.16, "sawtooth", 0.12);
     else if (kind === "spin") { beep(400, 0.06, "triangle", 0.08); setTimeout(() => beep(550, 0.08, "triangle", 0.08), 60); }
@@ -155,8 +164,10 @@ export default function MotionFighter() {
 
   const doJump = useCallback(() => {
     const S = g.current;
-    if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.jumpT > 0 || S.p.atk.active) return;
-    S.p.jumpT = 0.7; beep(520, 0.1, "sine", 0.08);
+    if (phaseRef.current !== "fight" || S.over || !humanNow()) return;
+    const f = actor();
+    if (f.jumpT > 0 || f.atk.active) return;
+    f.jumpT = 0.7; beep(520, 0.1, "sine", 0.08);
   }, []);
 
   useEffect(() => {
@@ -172,14 +183,15 @@ export default function MotionFighter() {
 
       if (phaseRef.current === "fight" && !S.over) {
         // 내 차례: 팔/다리 조준 (각도 제한 없음 — 360도 자유)
-        if (S.turn === "p") {
-          if (held.current.aimUp) p.aim -= 2.2 * dt;
-          if (held.current.aimDown) p.aim += 2.2 * dt;
-          if (held.current.legUp) p.legAim -= 2.2 * dt;
-          if (held.current.legDown) p.legAim += 2.2 * dt;
-          if (held.current.reachUp) p.reachMul = Math.min(2.2, p.reachMul + 1.1 * dt);
-          if (held.current.reachDown) p.reachMul = Math.max(0.5, p.reachMul - 1.1 * dt);
-          const rp = Math.round(p.reachMul * 100);
+        if (S.turn === "p" || (twoPRef.current && S.turn === "c")) {
+          const f = S.turn === "p" ? p : c; // 조작 대상 (P1 또는 P2)
+          if (held.current.aimUp) f.aim -= 2.2 * dt;
+          if (held.current.aimDown) f.aim += 2.2 * dt;
+          if (held.current.legUp) f.legAim -= 2.2 * dt;
+          if (held.current.legDown) f.legAim += 2.2 * dt;
+          if (held.current.reachUp) f.reachMul = Math.min(2.2, f.reachMul + 1.1 * dt);
+          if (held.current.reachDown) f.reachMul = Math.max(0.5, f.reachMul - 1.1 * dt);
+          const rp = Math.round(f.reachMul * 100);
           if (rp !== reachRef.current) { reachRef.current = rp; setReachPct(rp); }
         }
 
@@ -222,8 +234,9 @@ export default function MotionFighter() {
               target.x = Math.max(40, Math.min(320, target.x + (isPlayer ? 1 : -1) * (res === "head" ? 14 : 7))); // 넉백
               if (res === "head") sCrit(); else sHit();
               setMsg(`${a.air ? "점프 " : ""}${isPlayer ? "적" : "나"}에게 ${dmg}!${res === "head" ? " 크리티컬! 💥" : ""}`);
-              // 콤보 갱신
-              if (isPlayer) { S.pHit = true; S.combo++; S.comboT = 2.0; setCombo(S.combo); }
+              // 콤보 갱신 (P1, 또는 2인모드의 P2도)
+              const attackerHuman = isPlayer || twoPRef.current;
+              if (attackerHuman) { S.pHit = true; S.combo++; S.comboT = 2.0; setCombo(S.combo); }
               else { S.combo = 0; setCombo(0); }
               // 💥 도파민 연출 (콤보 쌓일수록 배로 커짐!)
               const cm = 1 + Math.min(S.combo, 15) * 0.5;
@@ -237,9 +250,9 @@ export default function MotionFighter() {
                 S.parts.push({ x: tx, y: ty, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 0.5 + Math.random() * 0.5, c: i % 5 === 0 ? "#fff" : pc });
               }
               S.pops.push({ x: tx, y: ty - 18, txt: `${res === "head" ? "★" : ""}${dmg}`, life: 0.9, big: big || S.combo >= 3 });
-              if (isPlayer && S.combo >= 2) S.pops.push({ x: W / 2, y: 46, txt: `${S.combo} COMBO!! 🔥${S.combo >= 5 ? "🔥🔥" : ""}`, life: 1.15, big: true });
+              if (attackerHuman && S.combo >= 2) S.pops.push({ x: W / 2, y: 46, txt: `${S.combo} COMBO!! 🔥${S.combo >= 5 ? "🔥🔥" : ""}`, life: 1.15, big: true });
               // ⚡ 에너지 섬광 (크리티컬 / 고콤보) — 붉은 섬광 + 베기 궤적
-              if (res === "head" || (isPlayer && S.combo >= 4)) {
+              if (res === "head" || (attackerHuman && S.combo >= 4)) {
                 S.flash = 0.32;
                 for (let i = 0; i < 4; i++) {
                   const sang = (Math.random() - 0.5) * 1.3 + (dir > 0 ? -0.4 : 0.4);
@@ -250,7 +263,7 @@ export default function MotionFighter() {
               }
             }
           }
-          if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) { setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); if (isPlayer && S.combo !== 0) { S.combo = 0; setCombo(0); } } return true; }
+          if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) { setMsg("빗나감!"); if ((isPlayer || twoPRef.current) && S.combo !== 0) { S.combo = 0; setCombo(0); } } return true; }
           return false;
         };
         const pDone = advance(p, 1, c, true);
@@ -262,12 +275,15 @@ export default function MotionFighter() {
         // 턴 전환 — 맞히면 콤보로 계속 공격! (최대 6연타)
         if (pDone && S.turn === "p" && !S.over && c.hp > 0) {
           if (S.pHit && S.combo < 6) { setMsg(`${S.combo} 콤보! 계속 공격! 🔥`); }
-          else { S.turn = "c"; S.cpuTimer = 0.8; sTurn(); }
+          else { S.turn = "c"; S.cpuTimer = 0.8; sTurn(); setMsg(twoPRef.current ? "🔴 P2 차례!" : "🔴 적 차례..."); }
         }
-        if (cDone && S.turn === "c" && !S.over && p.hp > 0) { S.turn = "p"; sTurn(); setMsg("내 차례! 조준하고 공격!"); }
+        if (cDone && S.turn === "c" && !S.over && p.hp > 0) {
+          if (twoPRef.current && S.pHit && S.combo < 6) { setMsg(`${S.combo} 콤보! P2 계속! 🔥`); }
+          else { S.turn = "p"; sTurn(); setMsg(twoPRef.current ? "🔵 P1 차례!" : "내 차례! 조준하고 공격!"); }
+        }
 
-        // CPU 차례: 잠깐 생각 후 조준+공격
-        if (S.turn === "c" && !c.atk.active && !S.over && c.hp > 0) {
+        // CPU 차례: 잠깐 생각 후 조준+공격 (2인 모드에선 CPU 끔 — P2가 조작)
+        if (!twoPRef.current && S.turn === "c" && !c.atk.active && !S.over && c.hp > 0) {
           S.cpuTimer -= dt;
           if (S.cpuTimer <= 0) {
             const air = Math.random() < 0.3; // 가끔 점프 공격
@@ -288,7 +304,8 @@ export default function MotionFighter() {
           const orbWin = c.hp <= 0 && MODES[modeRef.current].finisher === "orb";
           S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
           // 단계 경계(초): [인트로끝, 도발끝, 합체끝, 발사끝, 여파끝, 마무리끝]
-          S.stageT = S.selfD ? [4, 9, 29, 35, 42, 46] : [6, 13, 38, 45, 52, 57];
+          // 합체(2)가 길고, 발사(3) 후엔 바로 쓰러지고 곧 결과
+          S.stageT = S.selfD ? [4, 9, 40, 43, 45, 47] : [5, 11, 50, 53, 55, 57];
           S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
           S.finish = S.selfD ? 50 : 60; S.finishWin = c.hp <= 0; S.cineStage = -1;
           const loser = c.hp <= 0 ? c : p;
@@ -361,7 +378,7 @@ export default function MotionFighter() {
           if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: win ? md.aura : "#fb7185" }); }
         }
         // 💀 패자 쓰러지는 연출 (참격 이후 서서히 넘어짐)
-        if (S.cineStage >= 3) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 0.5); }
+        if (S.cineStage >= 3) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 1.0); }
         // 🔵+🔴 합체 → 완성되면 🟣 발사 + 대폭발
         if (S.merge.active) {
           S.merge.t += dt;
@@ -486,7 +503,8 @@ export default function MotionFighter() {
     }
 
     // 조준선 (플레이어 차례에만): 팔(노랑) + 다리(주황)
-    const showAim = isPlayer && !f.atk.active && phaseRef.current === "fight" && g.current.turn === "p" && !g.current.over;
+    const activeHuman = (isPlayer && g.current.turn === "p") || (!isPlayer && g.current.turn === "c" && twoPRef.current);
+    const showAim = activeHuman && !f.atk.active && phaseRef.current === "fight" && !g.current.over;
     if (showAim) {
       ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
       const armLen = 14 + 60 * f.reachMul, legLen = 18 + 92 * f.reachMul; // 사거리 반영
@@ -569,7 +587,7 @@ export default function MotionFighter() {
   }, [doAttack, doJump]);
 
   const matchOver = pWins >= 3 || cWins >= 3;
-  const myTurn = turn === "p" && phase === "fight";
+  const myTurn = phase === "fight" && (turn === "p" || (twoP && turn === "c")); // 조작 가능한 사람 차례
   const holdBtn = (k: keyof typeof held.current, label: string) => (
     <button
       onMouseDown={() => setHold(k, true)} onMouseUp={() => setHold(k, false)} onMouseLeave={() => setHold(k, false)}
@@ -588,20 +606,28 @@ export default function MotionFighter() {
           <span className="text-xs text-amber-300">{"⭐".repeat(pWins)}:{"⭐".repeat(cWins)}</span>
         </div>
 
-        {/* 모드 선택 (오리지널 초강력 모드) */}
+        {/* 1인/2인 선택 */}
+        <div className="mb-2 grid grid-cols-2 gap-1.5">
+          <button onClick={() => { setTwoP(false); resetRound(false); }}
+            className={`rounded-lg py-1.5 text-xs font-black border-2 ${!twoP ? "border-white bg-slate-700" : "border-transparent bg-slate-800 opacity-55"}`}>🤖 1인 (vs CPU)</button>
+          <button onClick={() => { setTwoP(true); resetRound(false); }}
+            className={`rounded-lg py-1.5 text-xs font-black border-2 ${twoP ? "border-white bg-slate-700" : "border-transparent bg-slate-800 opacity-55"}`}>👥 2인 (번갈아)</button>
+        </div>
+
+        {/* 모드 선택 (P1) */}
         <div className="mb-2 grid grid-cols-2 gap-1.5">
           {(Object.keys(MODES) as ModeKey[]).map((k) => (
             <button key={k} onClick={() => setMode(k)} disabled={cine.active}
               className={`rounded-lg py-1.5 text-xs font-black border-2 transition-all ${mode === k ? "border-white scale-105" : "border-transparent opacity-55"}`}
               style={{ background: MODES[k].color + "2e", color: MODES[k].color }}>
-              {MODES[k].name}
+              {MODES[k].name}{twoP ? " (P1)" : ""}
             </button>
           ))}
         </div>
 
         {/* 차례 배너 */}
-        <div className={`mb-2 rounded-lg py-1 text-center text-sm font-black ${myTurn ? "bg-sky-500/30 text-sky-200" : phase === "fight" ? "bg-red-500/30 text-red-200" : "bg-slate-700 text-slate-300"}`}>
-          {phase === "ko" ? "라운드 종료" : myTurn ? "🔵 내 차례!" : "🔴 적 차례..."}
+        <div className={`mb-2 rounded-lg py-1 text-center text-sm font-black ${turn === "p" && phase === "fight" ? "bg-sky-500/30 text-sky-200" : phase === "fight" ? "bg-red-500/30 text-red-200" : "bg-slate-700 text-slate-300"}`}>
+          {phase === "ko" ? "라운드 종료" : turn === "p" ? (twoP ? "🔵 P1 차례!" : "🔵 내 차례!") : (twoP ? "🔴 P2 차례!" : "🔴 적 차례...")}
         </div>
 
         {/* HP */}
