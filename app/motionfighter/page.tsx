@@ -27,15 +27,15 @@ const SHOULDER_Y = 190, HEAD_Y = 165, HEAD_R = 15, HIP_Y = 245, FOOT_Y = GROUND;
 const SAVE = "bodyfighter_best";
 const PX = 138, CX = 214; // 고정 위치 (턴제)
 
-type Attack = { active: boolean; t: number; hitDone: boolean; kind: "punch" | "kick"; aim: number };
-type Fighter = { x: number; hp: number; aim: number; atk: Attack; hurtT: number };
-const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2 }, hurtT: 0 });
+type Attack = { active: boolean; t: number; hitDone: boolean; kind: "punch" | "kick"; aim: number; air: boolean };
+type Fighter = { x: number; hp: number; aim: number; legAim: number; atk: Attack; hurtT: number; yOff: number; jumpT: number };
+const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2, air: false }, hurtT: 0, yOff: 0, jumpT: 0 });
 
 function limbTip(f: Fighter, dir: number, kind: "punch" | "kick", ext: number) {
-  const originY = kind === "punch" ? SHOULDER_Y : HIP_Y;
-  const base = kind === "punch" ? 14 : 16;
-  const reach = kind === "punch" ? 60 : 74;
-  const aim = kind === "punch" ? f.atk.aim : f.atk.aim + 0.35;
+  const originY = (kind === "punch" ? SHOULDER_Y : HIP_Y) + f.yOff;
+  const base = kind === "punch" ? 14 : 18;
+  const reach = kind === "punch" ? 60 : 92; // 다리는 사거리(공간) 더 넓게
+  const aim = f.atk.aim; // 펀치=팔각도, 킥=다리각도 (attack 시작 시 지정)
   const len = base + reach * ext;
   return { x: f.x + dir * len * Math.cos(aim), y: originY + len * Math.sin(aim) };
 }
@@ -51,7 +51,7 @@ export default function MotionFighter() {
   const [msg, setMsg] = useState("내 차례! 조준하고 공격!");
 
   const g = useRef({ p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false });
-  const held = useRef({ aimUp: false, aimDown: false });
+  const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false });
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
@@ -66,16 +66,25 @@ export default function MotionFighter() {
     const S = g.current;
     if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.atk.active) return;
     const a = S.p.atk;
-    a.active = true; a.t = 0; a.hitDone = false; a.kind = kind; a.aim = S.p.aim;
+    a.active = true; a.t = 0; a.hitDone = false; a.kind = kind;
+    a.aim = kind === "kick" ? S.p.legAim : S.p.aim; // 킥=다리각도, 펀치=팔각도
+    a.air = S.p.yOff < -6; // 점프 중이면 점프 공격
     sSwing();
   }, []);
 
   const checkHit = (tip: { x: number; y: number }, target: Fighter): "head" | "body" | null => {
-    const dh = Math.hypot(tip.x - target.x, tip.y - HEAD_Y);
+    const hy = HEAD_Y + target.yOff, py = HIP_Y + target.yOff;
+    const dh = Math.hypot(tip.x - target.x, tip.y - hy);
     if (dh < HEAD_R + 8) return "head";
-    if (tip.x > target.x - 16 && tip.x < target.x + 16 && tip.y > HEAD_Y + 8 && tip.y < HIP_Y + 6) return "body";
+    if (tip.x > target.x - 16 && tip.x < target.x + 16 && tip.y > hy + 8 && tip.y < py + 6) return "body";
     return null;
   };
+
+  const doJump = useCallback(() => {
+    const S = g.current;
+    if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.jumpT > 0 || S.p.atk.active) return;
+    S.p.jumpT = 0.7; beep(520, 0.1, "sine", 0.08);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -89,11 +98,24 @@ export default function MotionFighter() {
       const p = S.p, c = S.c;
 
       if (phaseRef.current === "fight" && !S.over) {
-        // 내 차례: 팔 조준
+        // 내 차례: 팔/다리 조준 (각도 제한 없음 — 360도 자유)
         if (S.turn === "p") {
-          if (held.current.aimUp) p.aim = Math.max(-1.05, p.aim - 2.0 * dt);
-          if (held.current.aimDown) p.aim = Math.min(0.5, p.aim + 2.0 * dt);
+          if (held.current.aimUp) p.aim -= 2.2 * dt;
+          if (held.current.aimDown) p.aim += 2.2 * dt;
+          if (held.current.legUp) p.legAim -= 2.2 * dt;
+          if (held.current.legDown) p.legAim += 2.2 * dt;
         }
+
+        // 점프 물리 (yOff: 위로 떴다가 착지)
+        const jumpUpdate = (f: Fighter) => {
+          if (f.jumpT > 0) {
+            f.jumpT -= dt;
+            const prog = Math.max(0, Math.min(1, 1 - f.jumpT / 0.7));
+            f.yOff = -78 * Math.sin(prog * Math.PI);
+            if (f.jumpT <= 0) { f.jumpT = 0; f.yOff = 0; }
+          }
+        };
+        jumpUpdate(p); jumpUpdate(c);
 
         // 공격 진행 + 히트 → 끝나면 턴 넘김
         const advance = (f: Fighter, dir: number, target: Fighter, isPlayer: boolean): boolean => {
@@ -106,12 +128,13 @@ export default function MotionFighter() {
             const res = checkHit(tip, target);
             if (res) {
               a.hitDone = true;
-              const baseDmg = a.kind === "kick" ? 15 : 9;
+              let baseDmg = a.kind === "kick" ? 15 : 9;
+              if (a.air) baseDmg = Math.round(baseDmg * 1.5); // 점프 공격 보너스
               const dmg = res === "head" ? Math.round(baseDmg * 1.8) : baseDmg;
               target.hp = Math.max(0, target.hp - dmg);
               target.hurtT = 0.3;
               if (res === "head") sCrit(); else sHit();
-              setMsg(`${isPlayer ? "적" : "나"}에게 ${dmg} 피해!${res === "head" ? " 크리티컬! 💥" : ""}`);
+              setMsg(`${a.air ? "점프 " : ""}${isPlayer ? "적" : "나"}에게 ${dmg}!${res === "head" ? " 크리티컬! 💥" : ""}`);
             }
           }
           if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); return true; }
@@ -132,8 +155,10 @@ export default function MotionFighter() {
           S.cpuTimer -= dt;
           if (S.cpuTimer <= 0) {
             const kind = Math.random() < 0.55 ? "punch" : "kick";
-            c.aim = (Math.random() < 0.55 ? -0.35 : 0.05) + (Math.random() - 0.5) * 0.25; // 머리/몸통 조준
-            c.atk.active = true; c.atk.t = 0; c.atk.hitDone = false; c.atk.kind = kind; c.atk.aim = c.aim;
+            const air = Math.random() < 0.3; // 가끔 점프 공격
+            if (air) c.jumpT = 0.7;
+            c.aim = (Math.random() < 0.55 ? -0.35 : 0.05) + (Math.random() - 0.5) * 0.25;
+            c.atk.active = true; c.atk.t = 0; c.atk.hitDone = false; c.atk.kind = kind; c.atk.aim = c.aim; c.atk.air = air;
             sSwing();
           }
         }
@@ -169,39 +194,44 @@ export default function MotionFighter() {
   }, []);
 
   function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter, dir: number, color: string, isPlayer: boolean) {
-    const x = f.x;
+    const x = f.x, oy = f.yOff;
+    const shY = SHOULDER_Y + oy, hdY = HEAD_Y + oy, hipY = HIP_Y + oy;
     const hurt = f.hurtT > 0;
     ctx.lineWidth = 5; ctx.lineCap = "round";
     ctx.strokeStyle = hurt ? "#ef4444" : color; ctx.fillStyle = hurt ? "#ef4444" : color;
 
-    // 조준선 (플레이어 차례에만)
-    if (isPlayer && !f.atk.active && phaseRef.current === "fight" && g.current.turn === "p" && !g.current.over) {
-      ctx.save(); ctx.strokeStyle = "rgba(250,204,21,0.6)"; ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x, SHOULDER_Y);
-      ctx.lineTo(x + dir * 78 * Math.cos(f.aim), SHOULDER_Y + 78 * Math.sin(f.aim)); ctx.stroke(); ctx.restore();
+    // 조준선 (플레이어 차례에만): 팔(노랑) + 다리(주황)
+    const showAim = isPlayer && !f.atk.active && phaseRef.current === "fight" && g.current.turn === "p" && !g.current.over;
+    if (showAim) {
+      ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(250,204,21,0.65)"; // 팔
+      ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x + dir * 82 * Math.cos(f.aim), shY + 82 * Math.sin(f.aim)); ctx.stroke();
+      ctx.strokeStyle = "rgba(251,146,60,0.65)"; // 다리
+      ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + dir * 100 * Math.cos(f.legAim), hipY + 100 * Math.sin(f.legAim)); ctx.stroke();
+      ctx.restore();
     }
 
     const kicking = f.atk.active && f.atk.kind === "kick";
     const kickExt = kicking ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0;
     ctx.strokeStyle = hurt ? "#ef4444" : color;
-    ctx.beginPath(); ctx.moveTo(x, HIP_Y); ctx.lineTo(x - dir * 12, FOOT_Y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x - dir * 12, FOOT_Y + oy); ctx.stroke();
     if (kicking) {
       const foot = limbTip(f, dir, "kick", kickExt);
-      ctx.beginPath(); ctx.moveTo(x, HIP_Y); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(foot.x, foot.y); ctx.stroke();
       ctx.beginPath(); ctx.arc(foot.x, foot.y, 5, 0, 7); ctx.fill();
-    } else { ctx.beginPath(); ctx.moveTo(x, HIP_Y); ctx.lineTo(x + dir * 10, FOOT_Y); ctx.stroke(); }
+    } else { ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + dir * 10, FOOT_Y + oy); ctx.stroke(); }
 
-    ctx.beginPath(); ctx.moveTo(x, HEAD_Y + HEAD_R); ctx.lineTo(x, HIP_Y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x, SHOULDER_Y); ctx.lineTo(x - dir * 14, SHOULDER_Y + 18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, hdY + HEAD_R); ctx.lineTo(x, hipY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x - dir * 14, shY + 18); ctx.stroke();
 
     const punching = f.atk.active && f.atk.kind === "punch";
     const punchExt = punching ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0.12;
     const fist = limbTip(f, dir, "punch", punchExt);
-    ctx.beginPath(); ctx.moveTo(x, SHOULDER_Y); ctx.lineTo(fist.x, fist.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(fist.x, fist.y); ctx.stroke();
     ctx.beginPath(); ctx.arc(fist.x, fist.y, 6, 0, 7); ctx.fill();
 
-    ctx.beginPath(); ctx.arc(x, HEAD_Y, HEAD_R, 0, 7); ctx.fill();
-    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + dir * 5, HEAD_Y - 2, 2.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, hdY, HEAD_R, 0, 7); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + dir * 5, hdY - 2, 2.5, 0, 7); ctx.fill();
   }
 
   const setHold = (k: keyof typeof held.current, v: boolean) => { held.current[k] = v; };
@@ -210,17 +240,22 @@ export default function MotionFighter() {
       switch (e.key) {
         case "ArrowUp": case "w": case "W": setHold("aimUp", true); break;
         case "ArrowDown": case "s": case "S": setHold("aimDown", true); break;
-        case "j": case "J": case " ": e.preventDefault(); doAttack("punch"); break;
+        case "ArrowLeft": setHold("legUp", true); break;
+        case "ArrowRight": setHold("legDown", true); break;
+        case " ": case "z": case "Z": e.preventDefault(); doJump(); break;
+        case "j": case "J": doAttack("punch"); break;
         case "k": case "K": doAttack("kick"); break;
       }
     };
     const up = (e: KeyboardEvent) => {
       if (["ArrowUp", "w", "W"].includes(e.key)) setHold("aimUp", false);
       if (["ArrowDown", "s", "S"].includes(e.key)) setHold("aimDown", false);
+      if (e.key === "ArrowLeft") setHold("legUp", false);
+      if (e.key === "ArrowRight") setHold("legDown", false);
     };
     window.addEventListener("keydown", dn); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", dn); window.removeEventListener("keyup", up); };
-  }, [doAttack]);
+  }, [doAttack, doJump]);
 
   const matchOver = pWins >= 3 || cWins >= 3;
   const myTurn = turn === "p" && phase === "fight";
@@ -273,15 +308,20 @@ export default function MotionFighter() {
           )}
         </div>
 
-        {/* 조작 */}
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {holdBtn("aimUp", "🔼 팔 위로")}
-          {holdBtn("aimDown", "🔽 팔 아래로")}
-          <button onClick={() => doAttack("punch")} disabled={!myTurn} className={`rounded-xl py-4 text-lg font-black active:scale-90 ${myTurn ? "bg-amber-600 active:bg-amber-500" : "bg-slate-800 text-slate-500"}`}>👊 펀치</button>
-          <button onClick={() => doAttack("kick")} disabled={!myTurn} className={`rounded-xl py-4 text-lg font-black active:scale-90 ${myTurn ? "bg-orange-600 active:bg-orange-500" : "bg-slate-800 text-slate-500"}`}>🦵 킥</button>
+        {/* 조작: 팔·다리 각도 + 점프 */}
+        <div className="mt-3 grid grid-cols-4 gap-1.5">
+          {holdBtn("aimUp", "🔼팔")}
+          {holdBtn("aimDown", "🔽팔")}
+          {holdBtn("legUp", "🔼다리")}
+          {holdBtn("legDown", "🔽다리")}
         </div>
-        <p className="text-center text-[11px] text-gray-300 mt-2">🔼🔽로 <b>팔 각도(노란 조준선)</b>를 맞춘 뒤 👊펀치/🦵킥! <b>머리 조준 = 크리티컬!</b> 공격하면 적 차례로 넘어가요.</p>
-        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓ 조준 · J 펀치 · K 킥</p>
+        <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+          <button onClick={doJump} disabled={!myTurn} className={`rounded-xl py-4 text-base font-black active:scale-90 ${myTurn ? "bg-purple-600 active:bg-purple-500" : "bg-slate-800 text-slate-500"}`}>⬆️ 점프</button>
+          <button onClick={() => doAttack("punch")} disabled={!myTurn} className={`rounded-xl py-4 text-base font-black active:scale-90 ${myTurn ? "bg-amber-600 active:bg-amber-500" : "bg-slate-800 text-slate-500"}`}>👊 펀치</button>
+          <button onClick={() => doAttack("kick")} disabled={!myTurn} className={`rounded-xl py-4 text-base font-black active:scale-90 ${myTurn ? "bg-orange-600 active:bg-orange-500" : "bg-slate-800 text-slate-500"}`}>🦵 킥</button>
+        </div>
+        <p className="text-center text-[11px] text-gray-300 mt-2"><b>팔(노랑)·다리(주황) 조준선</b>을 각자 맞춰 👊킥! <b>머리=크리티컬</b>, <b>⬆️점프 중 공격=점프 콤보(1.5배)!</b> 각도 제한 없음(360°).</p>
+        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓팔 · ←→다리 · Space점프 · J펀치 · K킥</p>
       </div>
     </div>
   );
