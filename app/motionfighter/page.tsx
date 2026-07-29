@@ -62,7 +62,7 @@ export default function MotionFighter() {
 
   const g = useRef({
     p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
-    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0,
+    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
@@ -70,6 +70,7 @@ export default function MotionFighter() {
   const [combo, setCombo] = useState(0);
   const [airborne, setAirborne] = useState(false);
   const airborneRef = useRef(false);
+  const [cine, setCine] = useState<{ active: boolean; line: string; win: boolean; stage: number }>({ active: false, line: "", win: false, stage: -1 });
   const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false, reachUp: false, reachDown: false });
   const [reachPct, setReachPct] = useState(100);
   const reachRef = useRef(100);
@@ -79,8 +80,8 @@ export default function MotionFighter() {
   const resetRound = useCallback((keepWins: boolean) => {
     g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
     g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
-    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = [];
-    setCombo(0);
+    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.cineStage = -1;
+    setCombo(0); setCine({ active: false, line: "", win: false, stage: -1 });
     setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
     if (!keepWins) { setPWins(0); setCWins(0); }
   }, []);
@@ -239,29 +240,47 @@ export default function MotionFighter() {
           }
         }
 
-        // KO → 액션 피니시 영상 (슬로우모션 + 대폭발)
+        // KO → 15초 액션 영화 시작
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          S.finish = 1.5; S.finishWin = c.hp <= 0;
-          const loser = c.hp <= 0 ? c : p;
-          sKo();
-          setMsg("💥 F I N I S H !! 💥");
-          S.shake = 36;
-          for (let i = 0; i < 70; i++) {
-            const ang = Math.random() * Math.PI * 2, sp = 80 + Math.random() * 300;
-            S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 60, life: 0.9 + Math.random() * 0.8, c: ["#fde047", "#fb7185", "#fff", "#f97316"][i % 4] });
-          }
-          S.pops.push({ x: W / 2, y: H / 2, txt: "FINISH!!", life: 1.5, big: true });
+          S.finish = 15; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          setMsg("");
         }
         setPhP(p.hp); setChP(c.hp);
         if (S.turn !== turnRef.current) { turnRef.current = S.turn; setTurn(S.turn); }
       }
 
-      // 액션 피니시 카운트다운 (슬로우모션)
+      // 🎬 15초 액션 영화 (대사 → 기 모으기 → 참격 → 여파 → 결과)
       if (S.finish > 0) {
         S.finish -= dt;
+        const elapsed = 15 - S.finish;
+        const stage = elapsed < 3.5 ? 0 : elapsed < 7 ? 1 : elapsed < 8.5 ? 2 : elapsed < 12 ? 3 : 4;
+        if (stage !== S.cineStage) {
+          S.cineStage = stage;
+          const win = S.finishWin;
+          const LINES = win
+            ? ["…드디어, 끝이군.", "내 모든 걸 담은 한 방을 받아라!!", "참─────격!!!", "…이걸로 끝이다.", "승 리"]
+            : ["큭… 여기서 끝인가…", "적이 힘을 모은다…!", "참─────격!!!", "크윽…! 방심했다…", "패 배"];
+          setCine({ active: true, line: LINES[stage], win, stage });
+          if (stage <= 1) beep(200, 0.22, "sawtooth", 0.09); // 외침
+          if (stage === 2) {
+            // ⚔️ 참격 발동! 대폭발
+            const loser = win ? c : p;
+            S.flash = 1.2; S.shake = 44; sKo();
+            for (let i = 0; i < 130; i++) { const ang = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 1.0 + Math.random() * 1.4, c: ["#fff", "#f43f5e", "#a855f7", "#fde047"][i % 4] }); }
+            for (let i = 0; i < 11; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
+            loser.hurtT = 5; loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
+            S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
+          }
+        }
+        // 기 모으기 오라 (기 모으는 단계)
+        if (S.cineStage === 1) {
+          const win = S.finishWin, hero = win ? p : c;
+          if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: win ? "#38bdf8" : "#fb7185" }); }
+        }
         if (S.finish <= 0) {
           const pWin = S.finishWin;
+          setCine({ active: false, line: "", win: pWin, stage: -1 });
           setPhase("ko"); setMsg(pWin ? "K.O.! 승리! 🎉" : "K.O.! 패배... 💀");
           if (pWin) setPWins((v) => v + 1); else setCWins((v) => v + 1);
         }
@@ -445,10 +464,28 @@ export default function MotionFighter() {
         <div className="relative rounded-2xl overflow-hidden border-2 border-purple-700/60">
           <canvas ref={canvasRef} width={W} height={H} className="w-full bg-slate-900" />
           <div className="absolute top-2 left-1/2 -translate-x-1/2 text-sm font-black text-yellow-300 drop-shadow px-2 text-center">{msg}</div>
-          {combo >= 2 && (
+          {combo >= 2 && !cine.active && (
             <div className="absolute top-2 right-2 text-right animate-pulse">
               <div className="text-2xl font-black text-orange-400 drop-shadow">{combo}<span className="text-sm"> COMBO</span></div>
             </div>
+          )}
+          {/* 🎬 15초 액션 영화 오버레이 */}
+          {cine.active && phase !== "ko" && (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-9 bg-black" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-black" />
+              <div className="pointer-events-none absolute top-10 left-2 text-[10px] font-black text-red-500 animate-pulse">🎬 ACTION</div>
+              {cine.stage === 4 && (
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-6xl font-black drop-shadow-[0_3px_6px_rgba(0,0,0,0.9)] ${cine.win ? "text-yellow-300" : "text-rose-400"}`}>{cine.line}</div>
+              )}
+              {cine.line && cine.stage !== 4 && (
+                <div className="absolute bottom-11 left-1/2 -translate-x-1/2 w-[92%] text-center">
+                  <div className={`font-black drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] ${cine.stage === 2 ? "text-red-400 text-2xl animate-pulse" : cine.win ? "text-sky-200 text-lg" : "text-rose-200 text-lg"}`}>
+                    「{cine.line}」
+                  </div>
+                </div>
+              )}
+            </>
           )}
           {phase === "ko" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-center px-4">
