@@ -100,7 +100,7 @@ export default function MotionFighter() {
     shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1, dyingLine: "",
     merge: { active: false, t: 0, x: 0, y: 0, done: false, pr: 0, spin: 0 },
     bolts: [] as { x1: number; y1: number; x2: number; y2: number; life: number }[],
-    selfD: false, stageT: [8, 18, 123, 131, 143, 150] as number[], mergeStart: 18, mergeDur: 105, winMode: "azure" as ModeKey,
+    selfD: false, stageT: [8, 18, 123, 131, 143, 150] as number[], mergeStart: 18, mergeDur: 105, winMode: "azure" as ModeKey, total: 60,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
@@ -308,10 +308,12 @@ export default function MotionFighter() {
           S.winMode = pWon ? modeRef.current : (twoPRef.current ? mode2Ref.current : "crimson"); // 이긴 쪽 모드
           const orbWin = MODES[S.winMode].finisher === "orb";
           S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
-          // 단계 경계(초): 합체(2) 길게, 발사(3) 직후 즉사 + 바로 결과
-          S.stageT = S.selfD ? [4, 9, 44, 45, 46, 47] : [5, 11, 55, 56, 57, 58];
+          // 필살기 종류별 길이: 합체(orb) 60초 / 자폭 50초 / 참격(slash) 40초컷
+          if (S.selfD) { S.stageT = [4, 9, 44, 45, 46, 47]; S.total = 50; }
+          else if (orbWin) { S.stageT = [5, 11, 55, 56, 57, 58]; S.total = 60; }
+          else { S.stageT = [4, 9, 35, 36, 37, 38]; S.total = 40; } // 참격 40초컷
           S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
-          S.finish = S.selfD ? 50 : 60; S.finishWin = pWon; S.cineStage = -1;
+          S.finish = S.total; S.finishWin = pWon; S.cineStage = -1;
           const loser = pWon ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
@@ -324,7 +326,7 @@ export default function MotionFighter() {
       // 🎬 150초 액션 영화 (105초까지 천천히 합체 → 발사)
       if (S.finish > 0) {
         S.finish -= dt;
-        const elapsed = (S.selfD ? 50 : 60) - S.finish;
+        const elapsed = S.total - S.finish;
         // 7단계 (합체=2). 일반 60초(합체 25초) / 자폭 50초(합체 20초)
         const t = S.stageT;
         const stage = elapsed < t[0] ? 0 : elapsed < t[1] ? 1 : elapsed < t[2] ? 2 : elapsed < t[3] ? 3 : elapsed < t[4] ? 4 : elapsed < t[5] ? 5 : 6;
