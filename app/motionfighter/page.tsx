@@ -10,6 +10,7 @@ function beep(freq: number, dur: number, type: OscillatorType = "square", vol = 
       const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AC) return; ac = new AC();
     }
+    if (ac.state === "suspended") ac.resume(); // 소리 깨우기
     const o = ac.createOscillator(); const g = ac.createGain();
     o.type = type; o.frequency.value = freq; o.connect(g); g.connect(ac.destination);
     const t = ac.currentTime; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
