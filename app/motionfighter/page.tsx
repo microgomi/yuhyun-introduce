@@ -33,7 +33,7 @@ const KIND: Record<Kind, { origin: "sh" | "hip"; base: number; reach: number; dm
   punch: { origin: "sh", base: 14, reach: 60, dmg: 9 },
   kick: { origin: "hip", base: 18, reach: 92, dmg: 15 },
   smash: { origin: "sh", base: 16, reach: 82, dmg: 22 },
-  slam: { origin: "sh", base: 16, reach: 88, dmg: 18 },
+  slam: { origin: "sh", base: 16, reach: 264, dmg: 18 }, // 사거리 3배!
   spin: { origin: "hip", base: 18, reach: 98, dmg: 19 },
 };
 const legKind = (k: Kind) => k === "kick" || k === "spin";
@@ -62,7 +62,7 @@ export default function MotionFighter() {
 
   const g = useRef({
     p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
-    shake: 0, combo: 0, comboT: 0, pHit: false,
+    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
   });
@@ -78,6 +78,8 @@ export default function MotionFighter() {
   const resetRound = useCallback((keepWins: boolean) => {
     g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
     g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
+    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0;
+    setCombo(0);
     setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
     if (!keepWins) { setPWins(0); setCWins(0); }
   }, []);
@@ -157,8 +159,15 @@ export default function MotionFighter() {
           a.t += dt / 0.32;
           const ext = Math.sin(Math.min(1, a.t) * Math.PI);
           if (!a.hitDone && a.t > 0.35 && a.t < 0.7) {
+            const cfg = KIND[a.kind];
+            const ox = f.x, oyL = (cfg.origin === "sh" ? SHOULDER_Y : HIP_Y) + f.yOff;
             const tip = limbTip(f, dir, a.kind, ext);
-            const res = checkHit(tip, target);
+            // 팔/다리가 휘두르는 경로 전체로 판정 (긴 사거리도 명중)
+            let res: "head" | "body" | null = null;
+            for (let s = 0.35; s <= 1.001; s += 0.12) {
+              res = checkHit({ x: ox + (tip.x - ox) * s, y: oyL + (tip.y - oyL) * s }, target);
+              if (res) break;
+            }
             if (res) {
               a.hitDone = true;
               let baseDmg = KIND[a.kind].dmg;
@@ -219,23 +228,39 @@ export default function MotionFighter() {
           }
         }
 
-        // KO
-        if (p.hp <= 0 || c.hp <= 0) {
+        // KO → 액션 피니시 영상 (슬로우모션 + 대폭발)
+        if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          const pWin = c.hp <= 0;
-          sKo(); setPhase("ko");
-          setMsg(pWin ? "K.O.! 승리! 🎉" : "K.O.! 패배... 💀");
-          if (pWin) setPWins((v) => v + 1); else setCWins((v) => v + 1);
+          S.finish = 1.5; S.finishWin = c.hp <= 0;
+          const loser = c.hp <= 0 ? c : p;
+          sKo();
+          setMsg("💥 F I N I S H !! 💥");
+          S.shake = 36;
+          for (let i = 0; i < 70; i++) {
+            const ang = Math.random() * Math.PI * 2, sp = 80 + Math.random() * 300;
+            S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 60, life: 0.9 + Math.random() * 0.8, c: ["#fde047", "#fb7185", "#fff", "#f97316"][i % 4] });
+          }
+          S.pops.push({ x: W / 2, y: H / 2, txt: "FINISH!!", life: 1.5, big: true });
         }
         setPhP(p.hp); setChP(c.hp);
         if (S.turn !== turnRef.current) { turnRef.current = S.turn; setTurn(S.turn); }
       }
 
-      // 연출 물리 (항상 갱신)
-      if (S.shake > 0) S.shake = Math.max(0, S.shake - 55 * dt);
-      for (const pa of S.parts) { pa.x += pa.vx * dt; pa.y += pa.vy * dt; pa.vy += 320 * dt; pa.life -= dt; }
+      // 액션 피니시 카운트다운 (슬로우모션)
+      if (S.finish > 0) {
+        S.finish -= dt;
+        if (S.finish <= 0) {
+          const pWin = S.finishWin;
+          setPhase("ko"); setMsg(pWin ? "K.O.! 승리! 🎉" : "K.O.! 패배... 💀");
+          if (pWin) setPWins((v) => v + 1); else setCWins((v) => v + 1);
+        }
+      }
+      // 연출 물리 (피니시 중엔 슬로우모션)
+      const edt = S.finish > 0 ? dt * 0.35 : dt;
+      if (S.shake > 0) S.shake = Math.max(0, S.shake - 55 * edt);
+      for (const pa of S.parts) { pa.x += pa.vx * edt; pa.y += pa.vy * edt; pa.vy += 320 * edt; pa.life -= edt; }
       if (S.parts.length) S.parts = S.parts.filter((pa) => pa.life > 0);
-      for (const po of S.pops) { po.y -= 34 * dt; po.life -= dt; }
+      for (const po of S.pops) { po.y -= 34 * edt; po.life -= edt; }
       if (S.pops.length) S.pops = S.pops.filter((po) => po.life > 0);
       if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0 && S.combo !== 0) { S.combo = 0; setCombo(0); } }
 
