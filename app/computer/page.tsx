@@ -316,7 +316,7 @@ type Screen = "main" | "shop" | "build" | "test";
 
 export default function ComputerPage() {
   const [screen, setScreen] = useState<Screen>("main");
-  const [coins, setCoins] = useState(800); // 800만원 예산
+  const [coins, setCoins] = useState(1200); // 1200만원 예산
   const [inventory, setInventory] = useState<Part[]>([]);
   const [equipped, setEquipped] = useState<Map<string, Part>>(new Map());
   const [shopCategory, setShopCategory] = useState("cpu");
