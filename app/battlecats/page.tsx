@@ -204,6 +204,29 @@ function doGachaPull(): GachaCat {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+// 🐣 진화 형태 (Lv.10 → 1단계 '진', Lv.20 → 2단계 '초') — id별 진화 이모지
+const EVO_EMOJI: Record<string, [string, string]> = {
+  basic: ["😼", "🦁"], tank: ["🐢", "🏰"], axe: ["🪓", "🗡️"], gross: ["👺", "👹"],
+  cow: ["🐂", "🐃"], fish: ["🐬", "🐋"], lizard: ["🐲", "🐉"], titan: ["🗿", "🌟"],
+  ninja: ["🌀", "⚡"], witch: ["🧙‍♀️", "🔮"],
+  g_warrior: ["⚔️", "🛡️"], g_archer: ["🎯", "💘"], g_pirate: ["⚓", "🦜"], g_chef: ["🍳", "🔥"],
+  g_surfer: ["🌊", "🏄‍♂️"], g_robot: ["🦾", "🛰️"], g_angel: ["👼", "🕊️"], g_vampire: ["🦇", "🩸"],
+  g_dragon_cat: ["🐉", "🔥"], g_god_cat: ["🌩️", "☄️"], g_dark: ["🌌", "🕳️"], g_ice: ["❄️", "🌨️"],
+  g_ultimate: ["✨", "💫"], g_galaxy: ["🌠", "🪐"],
+};
+function evoStageFor(level: number): 0 | 1 | 2 {
+  return level >= 20 ? 2 : level >= 10 ? 1 : 0;
+}
+function evoDisplay(id: string, baseEmoji: string, baseName: string, level: number) {
+  const stage = evoStageFor(level);
+  if (stage === 0) return { emoji: baseEmoji, name: baseName, stage };
+  const pair = EVO_EMOJI[id];
+  const emoji = pair ? pair[stage - 1] : baseEmoji + (stage === 1 ? "✨" : "🌟");
+  const name = (stage === 1 ? "진 " : "초 ") + baseName;
+  return { emoji, name, stage };
+}
+const evoMulFor = (level: number) => { const s = evoStageFor(level); return s === 2 ? 1.5 : s === 1 ? 1.2 : 1; };
+
 const SAVE_KEY = "battlecats_save";
 
 export default function BattleCatsPage() {
@@ -521,13 +544,15 @@ export default function BattleCatsPage() {
 
     const lvl = catLevels[cat.id] ?? 1; // 강화 레벨 (레벨당 +12% 능력치)
     const lvlMul = 1 + (lvl - 1) * 0.12;
-    const scaledHp = Math.floor(cat.hp * (1 + clearedStages.length * 0.08) * lvlMul);
-    const scaledAtk = Math.floor(cat.atk * (1 + clearedStages.length * 0.06) * lvlMul);
+    const evoMul = evoMulFor(lvl); // 진화 보너스
+    const disp = evoDisplay(cat.id, cat.emoji, cat.name, lvl);
+    const scaledHp = Math.floor(cat.hp * (1 + clearedStages.length * 0.08) * lvlMul * evoMul);
+    const scaledAtk = Math.floor(cat.atk * (1 + clearedStages.length * 0.06) * lvlMul * evoMul);
 
     const unit: Unit = {
       uid: nextUid.current++,
       typeId: cat.id,
-      emoji: cat.emoji,
+      emoji: disp.emoji,
       x: 8,
       hp: scaledHp,
       maxHp: scaledHp,
@@ -865,6 +890,7 @@ export default function BattleCatsPage() {
               {battleCats.map((cat) => {
                 const cd = cooldowns[cat.id] ?? 0;
                 const canDeploy = money >= cat.cost && cd === 0;
+                const ev = evoDisplay(cat.id, cat.emoji, cat.name, catLevels[cat.id] ?? 1);
                 return (
                   <button
                     key={cat.id}
@@ -876,8 +902,8 @@ export default function BattleCatsPage() {
                         : "border-gray-200 bg-gray-100 opacity-40 dark:border-slate-800 dark:bg-slate-900"
                     }`}
                   >
-                    <span className="text-xl">{cat.emoji}</span>
-                    <p className="text-[9px] font-bold truncate">{cat.name}</p>
+                    <span className="text-xl">{ev.emoji}</span>
+                    <p className="text-[9px] font-bold truncate">{ev.name}</p>
                     <p className="text-[8px] text-amber-600 dark:text-amber-400">💰{cat.cost}</p>
                     {cd > 0 && (
                       <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
@@ -1079,14 +1105,20 @@ export default function BattleCatsPage() {
                 const cost = catXpCost(lvl);
                 const maxed = lvl >= 30;
                 const canUp = !maxed && xp >= cost;
-                const mul = 1 + (lvl - 1) * 0.12;
+                const ev = evoDisplay(cat.id, cat.emoji, cat.name, lvl);
+                const mul = (1 + (lvl - 1) * 0.12) * evoMulFor(lvl);
+                const nextEvo = lvl < 10 ? 10 : lvl < 20 ? 20 : null; // 다음 진화 레벨
                 return (
-                  <div key={cat.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/70 dark:border-slate-700 dark:bg-slate-800/70 p-2">
-                    <span className="text-2xl">{cat.emoji}</span>
+                  <div key={cat.id} className={`flex items-center gap-2 rounded-xl border p-2 ${ev.stage === 2 ? "border-amber-400 bg-amber-50/70 dark:border-amber-600 dark:bg-amber-950/30" : ev.stage === 1 ? "border-sky-300 bg-sky-50/70 dark:border-sky-700 dark:bg-sky-950/30" : "border-slate-200 bg-white/70 dark:border-slate-700 dark:bg-slate-800/70"}`}>
+                    <span className="text-2xl">{ev.emoji}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{cat.name} <span className="text-emerald-500">Lv.{lvl}</span></p>
+                      <p className="text-xs font-bold truncate">
+                        {ev.name} <span className="text-emerald-500">Lv.{lvl}</span>
+                        {ev.stage > 0 && <span className={`ml-1 rounded px-1 text-[8px] font-black text-white ${ev.stage === 2 ? "bg-amber-500" : "bg-sky-500"}`}>{ev.stage === 2 ? "초진화" : "진화"}</span>}
+                      </p>
                       <p className="text-[9px] text-slate-500 dark:text-slate-400">
                         ❤️{Math.floor(cat.hp * mul)} ⚔️{Math.floor(cat.atk * mul)}
+                        {nextEvo && <span className="ml-1 text-purple-400">· Lv.{nextEvo} 진화!</span>}
                       </p>
                     </div>
                     <button
@@ -1128,6 +1160,7 @@ export default function BattleCatsPage() {
               {availableCats.map((cat) => {
                 const picked = lineup.includes(cat.id);
                 const lvl = catLevels[cat.id] ?? 1;
+                const ev = evoDisplay(cat.id, cat.emoji, cat.name, lvl);
                 const disabled = !picked && lineup.length >= MAX_LINEUP;
                 return (
                   <button
@@ -1143,9 +1176,9 @@ export default function BattleCatsPage() {
                     }`}
                   >
                     {picked && <span className="absolute -top-1.5 -right-1.5 rounded-full bg-sky-500 px-1 text-[9px] font-black text-white">{lineup.indexOf(cat.id) + 1}</span>}
-                    <span className="text-2xl">{cat.emoji}</span>
-                    <p className="text-[8px] font-bold truncate">{cat.name}</p>
-                    <p className="text-[8px] text-emerald-500">Lv.{lvl}</p>
+                    <span className="text-2xl">{ev.emoji}</span>
+                    <p className="text-[8px] font-bold truncate">{ev.name}</p>
+                    <p className="text-[8px] text-emerald-500">Lv.{lvl}{ev.stage > 0 ? (ev.stage === 2 ? " 초진화" : " 진화") : ""}</p>
                   </button>
                 );
               })}
