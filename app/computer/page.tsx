@@ -130,6 +130,19 @@ const PARTS: Part[] = [
   { id: "kb7", name: "K̷E̷Y̷B̷O̷A̷R̷D̷_̷G̷L̷I̷T̷C̷H̷", emoji: "⌨️", category: "keyboard", tier: 7, power: 250, price: 150, desc: "누르기 전에 입력됨. 지연 -0.5초." },
   { id: "ms7", name: "M̶O̶U̶S̶E̶_̶0̶g̶", emoji: "🖱️", category: "mouse", tier: 7, power: 250, price: 150, desc: "무게 0g, DPI ∞. 생각만으로 커서가 움직임." },
   { id: "sp7", name: "S̸O̸U̸N̸D̸_̸B̸E̸Y̸O̸N̸D̸", emoji: "🎧", category: "speaker", tier: 7, power: 300, price: 200, desc: "인간이 못 듣는 소리까지 들림. 영혼에 울림." },
+  // ✨ ???초월 등급 (tier 8) - 오류마저 초월한 존재. 개념을 넘어선 부품
+  { id: "cpu8", name: "초월의 두뇌 ∞^∞", emoji: "🌟", category: "cpu", tier: 8, power: 9999, price: 700, desc: "모든 우주의 연산을 동시에. 시간을 초월해 계산 완료." },
+  { id: "gpu8", name: "창조의 그래픽 카드", emoji: "👁️", category: "gpu", tier: 8, power: 12000, price: 999, desc: "렌더링하는 순간 현실이 된다. 프레임=존재." },
+  { id: "ram8", name: "무한기억 코어", emoji: "🔮", category: "ram", tier: 8, power: 5000, price: 600, desc: "우주의 모든 정보를 담고도 남는다. 용량=∞^∞." },
+  { id: "st8", name: "영원의 저장소", emoji: "♾️", category: "storage", tier: 8, power: 4500, price: 620, desc: "과거·현재·미래를 통째로 저장. 로딩이란 개념 소멸." },
+  { id: "mb8", name: "만물의 메인보드", emoji: "🌈", category: "mainboard", tier: 8, power: 6000, price: 750, desc: "존재하는 모든 규격 + 존재하지 않는 규격까지 지원." },
+  { id: "cs8", name: "차원 초월 케이스", emoji: "🕊️", category: "case", tier: 8, power: 3000, price: 550, desc: "모든 차원을 담는 그릇. 안이 곧 우주다." },
+  { id: "pw8", name: "창세의 에너지원", emoji: "💫", category: "power", tier: 8, power: 4000, price: 650, desc: "빅뱅의 에너지를 공급. 출력 = 무한대의 무한대." },
+  { id: "cl8", name: "절대 정적 냉각기", emoji: "❇️", category: "cooler", tier: 8, power: 5000, price: 620, desc: "열이라는 개념 자체를 삭제. 온도 = 정의 불가." },
+  { id: "mn8", name: "신의 시야 모니터", emoji: "🌠", category: "monitor", tier: 8, power: 4500, price: 850, desc: "화면이 아닌 진짜 세계를 보여준다. 해상도=현실." },
+  { id: "kb8", name: "생각의 키보드", emoji: "🪄", category: "keyboard", tier: 8, power: 3500, price: 500, desc: "누르기 전에 이미 완성됨. 의지가 곧 입력." },
+  { id: "ms8", name: "무념의 마우스", emoji: "✨", category: "mouse", tier: 8, power: 3500, price: 500, desc: "커서가 마음보다 먼저 도착한다. 지연 = 음수." },
+  { id: "sp8", name: "천상의 사운드", emoji: "🎼", category: "speaker", tier: 8, power: 4000, price: 600, desc: "우주의 근원음을 재생. 듣는 순간 깨달음을 얻음." },
 ];
 
 /* ───── 게임 등급 (현실적 FPS 기반) ───── */
@@ -628,11 +641,11 @@ export default function ComputerPage() {
   }, [playCutscene]);
 
   const tierColor = (tier: number) => {
-    const colors = ["", "#aaa", "#4dabf7", "#ae3ec9", "#f59f00", "#e03131", "#ff00ff", "#00ffa3"];
+    const colors = ["", "#aaa", "#4dabf7", "#ae3ec9", "#f59f00", "#e03131", "#ff00ff", "#00ffa3", "#ffffff"];
     return colors[tier] || "#aaa";
   };
   const tierName = (tier: number) => {
-    const names = ["", "입문", "가성비", "고급", "하이엔드", "플래그십", "⭐비밀⭐", "⚠️오류⚠️"];
+    const names = ["", "입문", "가성비", "고급", "하이엔드", "플래그십", "⭐비밀⭐", "⚠️오류⚠️", "✨???초월✨"];
     return names[tier] || "";
   };
 
@@ -898,6 +911,7 @@ export default function ComputerPage() {
     const smoothCount = gameResults.filter(r => r.fps >= 60).length;
 
     const grade =
+      totalScore >= 8000 ? { name: "✨???초월✨", color: "#ffffff", desc: "개념을 초월했다... 이것은 더 이상 PC가 아니다. 신의 영역!" } :
       totalScore >= 1500 ? { name: "⚠️오류⚠️", color: "#00ffa3", desc: "E̷R̷R̷O̷R̷: 성능 측정 불가... 현실을 붕괴시키는 PC!" } :
       totalScore >= 400 ? { name: "⭐비밀⭐", color: "#ff00ff", desc: "인간의 기술을 초월한 전설의 PC!" } :
       totalScore >= 300 ? { name: "SS", color: "#ff4444", desc: "8K+VR 완벽! 미래에서 온 PC!" } :
