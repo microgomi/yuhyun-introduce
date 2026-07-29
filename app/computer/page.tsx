@@ -117,6 +117,19 @@ const PARTS: Part[] = [
   { id: "kb6", name: "자체제작 알루미늄 키보드", emoji: "🏆", category: "keyboard", tier: 6, power: 14, price: 40, desc: "CNC 알루미늄, 홀리판다 스위치" },
   { id: "ms6", name: "파이널마우스 UltralightX2", emoji: "💫", category: "mouse", tier: 6, power: 14, price: 30, desc: "29g, 세상에서 가장 가벼운 마우스" },
   { id: "sp6", name: "Sennheiser HD 800S + DAC", emoji: "👑", category: "speaker", tier: 6, power: 16, price: 50, desc: "오디오파일급, DAC/AMP 풀셋" },
+  // ⚠️ 오류(ERROR) 등급 (tier 7) - 이 세상의 부품이 아니다... 성능 붕괴급, 극악의 가격
+  { id: "cpu7", name: "C̷P̷U̷_̷N̷U̷L̷L̷ ∞코어", emoji: "👾", category: "cpu", tier: 7, power: 999, price: 300, desc: "코어 수 계산 오류... ∞GHz. 현실을 연산한다." },
+  { id: "gpu7", name: "R̸T̸X̸ ̸E̸R̸R̸O̸R̸", emoji: "🛑", category: "gpu", tier: 7, power: 1200, price: 480, desc: "VRAM 999TB?! 프레임이 무한대로 표시됨." },
+  { id: "ram7", name: "R̶A̶M̶_̶O̶V̶E̶R̶F̶L̶O̶W̶", emoji: "💥", category: "ram", tier: 7, power: 400, price: 200, desc: "용량: -1바이트... 그런데 왜 더 빠르지?" },
+  { id: "st7", name: "S̴S̴D̴_̴S̴E̴G̴F̴A̴U̴L̴T̴", emoji: "🕳️", category: "storage", tier: 7, power: 350, price: 220, desc: "읽기 속도 ∞MB/s. 저장하기 전에 로딩 끝남." },
+  { id: "mb7", name: "M̷B̷_̷K̷E̷R̷N̷E̷L̷_̷P̷A̷N̷I̷C̷", emoji: "🔴", category: "mainboard", tier: 7, power: 500, price: 250, desc: "PCIe ∞.0 지원. 존재하지 않는 슬롯까지 있음." },
+  { id: "cs7", name: "C̸A̸S̸E̸_̸V̸O̸I̸D̸", emoji: "🌀", category: "case", tier: 7, power: 200, price: 180, desc: "내부가 4차원으로 확장된 케이스. 무한 공간." },
+  { id: "pw7", name: "P̶O̶W̶E̶R̶_̶∞̶W̶", emoji: "⚡", category: "power", tier: 7, power: 300, price: 200, desc: "출력 무한대W. 우주의 에너지를 끌어온다." },
+  { id: "cl7", name: "C̷O̷O̷L̷E̷R̷_̷A̷B̷S̷O̷L̷U̷T̷E̷", emoji: "🧊", category: "cooler", tier: 7, power: 400, price: 220, desc: "절대영도(-273°C) 냉각. 시간이 얼어붙음." },
+  { id: "mn7", name: "M̸O̸N̸I̸T̸O̸R̸_̸∞̸K̸", emoji: "📺", category: "monitor", tier: 7, power: 350, price: 350, desc: "해상도 ∞K, 주사율 ∞Hz. 현실보다 선명함." },
+  { id: "kb7", name: "K̷E̷Y̷B̷O̷A̷R̷D̷_̷G̷L̷I̷T̷C̷H̷", emoji: "⌨️", category: "keyboard", tier: 7, power: 250, price: 150, desc: "누르기 전에 입력됨. 지연 -0.5초." },
+  { id: "ms7", name: "M̶O̶U̶S̶E̶_̶0̶g̶", emoji: "🖱️", category: "mouse", tier: 7, power: 250, price: 150, desc: "무게 0g, DPI ∞. 생각만으로 커서가 움직임." },
+  { id: "sp7", name: "S̸O̸U̸N̸D̸_̸B̸E̸Y̸O̸N̸D̸", emoji: "🎧", category: "speaker", tier: 7, power: 300, price: 200, desc: "인간이 못 듣는 소리까지 들림. 영혼에 울림." },
 ];
 
 /* ───── 게임 등급 (현실적 FPS 기반) ───── */
@@ -609,11 +622,11 @@ export default function ComputerPage() {
   }, [playCutscene]);
 
   const tierColor = (tier: number) => {
-    const colors = ["", "#aaa", "#4dabf7", "#ae3ec9", "#f59f00", "#e03131", "#ff00ff"];
+    const colors = ["", "#aaa", "#4dabf7", "#ae3ec9", "#f59f00", "#e03131", "#ff00ff", "#00ffa3"];
     return colors[tier] || "#aaa";
   };
   const tierName = (tier: number) => {
-    const names = ["", "입문", "가성비", "고급", "하이엔드", "플래그십", "⭐비밀⭐"];
+    const names = ["", "입문", "가성비", "고급", "하이엔드", "플래그십", "⭐비밀⭐", "⚠️오류⚠️"];
     return names[tier] || "";
   };
 
@@ -879,6 +892,7 @@ export default function ComputerPage() {
     const smoothCount = gameResults.filter(r => r.fps >= 60).length;
 
     const grade =
+      totalScore >= 1500 ? { name: "⚠️오류⚠️", color: "#00ffa3", desc: "E̷R̷R̷O̷R̷: 성능 측정 불가... 현실을 붕괴시키는 PC!" } :
       totalScore >= 400 ? { name: "⭐비밀⭐", color: "#ff00ff", desc: "인간의 기술을 초월한 전설의 PC!" } :
       totalScore >= 300 ? { name: "SS", color: "#ff4444", desc: "8K+VR 완벽! 미래에서 온 PC!" } :
       totalScore >= 250 ? { name: "S+", color: "#e03131", desc: "4K+VR 울트라! 꿈의 PC!" } :
