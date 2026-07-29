@@ -52,6 +52,8 @@ const MODES = {
 type ModeKey = keyof typeof MODES;
 const DEFEAT_CRY = ["큭… 몸이 말을 안 들어…", "아직… 쓰러질 순 없어…", "적의 기세가… 심상치 않다…!", "참─────격!!!", "막을… 수가… 없어…", "여기서… 끝이란 말인가…", "패 배"];
 const DYING_LINES = ["크윽… 내가… 지다니…", "말도… 안 돼…", "이게… 실력 차이인가…", "다음엔… 반드시 이긴다…", "아직… 끝나지 않았어…", "훌륭한… 일격이었다…"];
+// 💥 자폭 엔딩 전용 대사 (오리지널)
+const SELFD_CRY = ["…이걸로, 끝내자.", "너도 나도─── 여기서 사라진다.", "모든 힘을─── 한 점에 모은다…!", "함께─────소멸!!!", "미안하다… 이 방법뿐이었어.", "…후회는, 없다.", "승 리"];
 
 // 빛나는 에너지 구 (방사형 그라데이션)
 function glowOrb(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, c: string) {
@@ -335,7 +337,7 @@ export default function MotionFighter() {
           S.cineStage = stage;
           const win = S.finishWin; // P1이 이겼나 (결과 표시 색상용)
           const winner = win ? p : c, wdir = win ? 1 : -1;
-          let line = md.cry[stage]; // 승자가 외침
+          let line = (S.selfD ? SELFD_CRY : md.cry)[stage]; // 자폭이면 자폭 대사
           if (stage === 6) line = twoPRef.current ? (win ? "P1 승리!" : "P2 승리!") : (win ? "승 리!" : "패 배...");
           setCine({ active: true, line, loserLine: stage === 4 ? S.dyingLine : "", win, stage });
           if (stage <= 2) beep(200, 0.22, "sawtooth", 0.09); // 외침
