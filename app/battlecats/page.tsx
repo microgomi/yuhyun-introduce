@@ -220,6 +220,9 @@ export default function BattleCatsPage() {
   const [currentStage, setCurrentStage] = useState<Stage | null>(null);
   const [tick, setTick] = useState(0);
   const [gameSpeed, setGameSpeed] = useState(1);
+  // 실제 냥코대전쟁 요소: 지갑(일꾼냥) 레벨 + 성 대포
+  const [walletLevel, setWalletLevel] = useState(1); // 1~10, 돈 재생량 증가
+  const [cannonCharge, setCannonCharge] = useState(0); // 0~100, 100이면 발사 가능
 
   // Gacha state
   const [catFood, setCatFood] = useState(0);
@@ -262,6 +265,8 @@ export default function BattleCatsPage() {
     setEnemyBaseMaxHp(stage.baseHp);
     setUnits([]);
     setCooldowns({});
+    setWalletLevel(1);
+    setCannonCharge(0);
     setTick(0);
     nextUid.current = 0;
     setScreen("battle");
@@ -295,8 +300,11 @@ export default function BattleCatsPage() {
   useEffect(() => {
     if (screen !== "battle" || !currentStage) return;
 
-    // Money generation
-    if (tick % 5 === 0) setMoney((m) => m + 30 + Math.floor(tick * 6 / 100));
+    // Money generation (지갑 레벨이 높을수록 더 많이)
+    if (tick % 5 === 0) setMoney((m) => m + 15 + walletLevel * 12 + Math.floor(tick * 4 / 100));
+
+    // 대포 충전 (약 8초에 완충)
+    setCannonCharge((c) => Math.min(100, c + 1.2));
 
     // Spawn enemies
     const toSpawn = spawnQueue.current.filter((s) => s.spawnTick === tick);
@@ -447,6 +455,24 @@ export default function BattleCatsPage() {
     setUnits((prev) => [...prev, unit]);
   }, [money, cooldowns, clearedStages.length]);
 
+  // 지갑(일꾼냥) 레벨업 — 돈 재생량 증가
+  const walletUpgradeCost = 200 + (walletLevel - 1) * 250;
+  const upgradeWallet = useCallback(() => {
+    if (walletLevel >= 10 || money < walletUpgradeCost) return;
+    setMoney((m) => m - walletUpgradeCost);
+    setWalletLevel((l) => l + 1);
+  }, [walletLevel, money, walletUpgradeCost]);
+
+  // 성 대포 발사 — 모든 적에게 피해 + 뒤로 밀어냄
+  const fireCannon = useCallback(() => {
+    if (cannonCharge < 100) return;
+    setCannonCharge(0);
+    const dmg = 100 + (currentStage ? currentStage.id * 60 : 0);
+    setUnits((prev) => prev.map((u) => u.side === "enemy"
+      ? { ...u, hp: u.hp - dmg, x: Math.min(95, u.x + 10) } // 피해 + 넉백
+      : u));
+  }, [cannonCharge, currentStage]);
+
   const gachaCatsAsCatType: CatType[] = GACHA_CATS.filter((g) => ownedGachaCats.includes(g.id)).map((g) => ({
     ...g,
     unlockStage: 0,
@@ -579,6 +605,38 @@ export default function BattleCatsPage() {
                   {gameSpeed === 1 ? "x1" : "x2"}
                 </button>
               </div>
+            </div>
+
+            {/* 지갑(일꾼냥) 레벨업 + 성 대포 */}
+            <div className="flex gap-2">
+              <button
+                onClick={upgradeWallet}
+                disabled={walletLevel >= 10 || money < walletUpgradeCost}
+                className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-bold transition-all active:scale-95 ${
+                  walletLevel >= 10
+                    ? "border-emerald-400 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    : money >= walletUpgradeCost
+                    ? "border-emerald-400 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-600 dark:bg-emerald-900/30"
+                    : "border-gray-200 bg-gray-100 opacity-50 dark:border-slate-800 dark:bg-slate-900"
+                }`}
+              >
+                👷 지갑 Lv.{walletLevel}{walletLevel < 10 ? ` → 💰${walletUpgradeCost}` : " MAX"}
+              </button>
+              <button
+                onClick={fireCannon}
+                disabled={cannonCharge < 100}
+                className={`relative flex-1 overflow-hidden rounded-lg border px-2 py-1.5 text-xs font-bold transition-all active:scale-95 ${
+                  cannonCharge >= 100
+                    ? "border-red-400 bg-red-500 text-white animate-pulse"
+                    : "border-gray-300 bg-gray-100 dark:border-slate-700 dark:bg-slate-800"
+                }`}
+              >
+                <span
+                  className="absolute inset-0 -z-0 bg-red-400/40"
+                  style={{ width: `${cannonCharge}%` }}
+                />
+                <span className="relative z-10">💥 성 대포 {cannonCharge >= 100 ? "발사!" : `${Math.floor(cannonCharge)}%`}</span>
+              </button>
             </div>
 
             {/* Base HP bars */}
