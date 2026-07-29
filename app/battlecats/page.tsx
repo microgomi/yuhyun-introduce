@@ -233,6 +233,12 @@ export default function BattleCatsPage() {
   const spawnQueue = useRef<{ enemyId: string; spawnTick: number }[]>([]);
   const gameLoop = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 🎵 오리지널 전투 BGM (Web Audio, 외부 파일 없음)
+  const [bgmOn, setBgmOn] = useState(true);
+  const bgmCtx = useRef<AudioContext | null>(null);
+  const bgmTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bgmStep = useRef(0);
+
   // Save/Load
   useEffect(() => {
     try {
@@ -255,6 +261,38 @@ export default function BattleCatsPage() {
       ownedGachaCats: owned ?? ownedGachaCats,
     }));
   }, [catFood, ownedGachaCats]);
+
+  // 🎵 전투 BGM 재생 (오리지널 멜로디, 전투 화면에서만)
+  useEffect(() => {
+    if (screen !== "battle" || !bgmOn) {
+      if (bgmTimer.current) { clearInterval(bgmTimer.current); bgmTimer.current = null; }
+      return;
+    }
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    if (!bgmCtx.current) bgmCtx.current = new AC();
+    const ctx = bgmCtx.current;
+    ctx.resume?.();
+    // 신나는 오리지널 행진곡풍 멜로디 (16스텝 루프)
+    const MELODY = [523, 659, 784, 659, 587, 784, 880, 784, 659, 784, 988, 784, 880, 784, 659, 587];
+    const BASS = [131, 0, 196, 0, 147, 0, 196, 0, 131, 0, 196, 0, 165, 0, 196, 0];
+    const tone = (freq: number, dur: number, type: OscillatorType, vol: number) => {
+      if (!freq) return;
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = type; o.frequency.value = freq; o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime;
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur);
+    };
+    bgmStep.current = 0;
+    bgmTimer.current = setInterval(() => {
+      const s = bgmStep.current % MELODY.length;
+      tone(MELODY[s], 0.15, "square", 0.05);
+      if (BASS[s]) tone(BASS[s], 0.2, "triangle", 0.08);
+      bgmStep.current++;
+    }, 150);
+    return () => { if (bgmTimer.current) { clearInterval(bgmTimer.current); bgmTimer.current = null; } };
+  }, [screen, bgmOn]);
 
   const startBattle = useCallback((stage: Stage) => {
     setCurrentStage(stage);
@@ -598,6 +636,13 @@ export default function BattleCatsPage() {
               <span className="font-bold">{currentStage.emoji} Stage {currentStage.id}</span>
               <div className="flex items-center gap-3">
                 <span className="text-amber-600 dark:text-amber-400 font-bold">💰 {money}</span>
+                <button
+                  onClick={() => setBgmOn((v) => !v)}
+                  className="rounded-lg bg-slate-200 dark:bg-slate-700 px-2 py-1 text-xs font-bold"
+                  title="배경음악"
+                >
+                  {bgmOn ? "🔊" : "🔇"}
+                </button>
                 <button
                   onClick={() => setGameSpeed(gameSpeed === 1 ? 2 : 1)}
                   className="rounded-lg bg-slate-200 dark:bg-slate-700 px-2 py-1 text-xs font-bold"
