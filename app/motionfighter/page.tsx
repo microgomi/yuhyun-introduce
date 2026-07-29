@@ -62,9 +62,10 @@ export default function MotionFighter() {
 
   const g = useRef({
     p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
-    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false,
+    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
+    slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
   });
   const [combo, setCombo] = useState(0);
   const [airborne, setAirborne] = useState(false);
@@ -78,7 +79,7 @@ export default function MotionFighter() {
   const resetRound = useCallback((keepWins: boolean) => {
     g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
     g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
-    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0;
+    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = [];
     setCombo(0);
     setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
     if (!keepWins) { setPWins(0); setCWins(0); }
@@ -194,6 +195,16 @@ export default function MotionFighter() {
               }
               S.pops.push({ x: tx, y: ty - 18, txt: `${res === "head" ? "★" : ""}${dmg}`, life: 0.9, big: big || S.combo >= 3 });
               if (isPlayer && S.combo >= 2) S.pops.push({ x: W / 2, y: 46, txt: `${S.combo} COMBO!! 🔥${S.combo >= 5 ? "🔥🔥" : ""}`, life: 1.15, big: true });
+              // ⚡ 에너지 섬광 (크리티컬 / 고콤보) — 붉은 섬광 + 베기 궤적
+              if (res === "head" || (isPlayer && S.combo >= 4)) {
+                S.flash = 0.32;
+                for (let i = 0; i < 4; i++) {
+                  const sang = (Math.random() - 0.5) * 1.3 + (dir > 0 ? -0.4 : 0.4);
+                  S.slashes.push({ x: tx + (Math.random() - 0.5) * 26, y: ty + (Math.random() - 0.5) * 40, len: 90 + Math.random() * 90, ang: sang, life: 0.3 });
+                }
+                for (let i = 0; i < 14; i++) { const a2 = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 210; S.parts.push({ x: tx, y: ty, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 0.5 + Math.random() * 0.4, c: i % 2 ? "#a855f7" : "#f43f5e" }); }
+                if (res === "head") S.pops.push({ x: tx, y: ty - 40, txt: "⚡섬광!", life: 0.7, big: true });
+              }
             }
           }
           if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) { setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); if (isPlayer && S.combo !== 0) { S.combo = 0; setCombo(0); } } return true; }
@@ -262,6 +273,9 @@ export default function MotionFighter() {
       if (S.parts.length) S.parts = S.parts.filter((pa) => pa.life > 0);
       for (const po of S.pops) { po.y -= 34 * edt; po.life -= edt; }
       if (S.pops.length) S.pops = S.pops.filter((po) => po.life > 0);
+      if (S.flash > 0) S.flash = Math.max(0, S.flash - edt);
+      for (const sl of S.slashes) sl.life -= edt;
+      if (S.slashes.length) S.slashes = S.slashes.filter((sl) => sl.life > 0);
       if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0 && S.combo !== 0) { S.combo = 0; setCombo(0); } }
 
       // 렌더
@@ -279,6 +293,19 @@ export default function MotionFighter() {
       drawFighter(ctx, c, -1, "#fb7185", false);
       // 파편
       for (const pa of S.parts) { ctx.globalAlpha = Math.min(1, pa.life * 2.5); ctx.fillStyle = pa.c; ctx.beginPath(); ctx.arc(pa.x, pa.y, 3, 0, 7); ctx.fill(); }
+      ctx.globalAlpha = 1;
+      // ⚡ 에너지 섬광 (붉은 화면 번쩍)
+      if (S.flash > 0) { ctx.globalAlpha = Math.min(0.5, S.flash * 1.6); ctx.fillStyle = "#f43f5e"; ctx.fillRect(-30, -30, W + 60, H + 60); ctx.globalAlpha = 1; }
+      // ⚡ 베기 궤적
+      ctx.lineCap = "round";
+      for (const sl of S.slashes) {
+        ctx.globalAlpha = Math.min(1, sl.life / 0.3);
+        const dx = Math.cos(sl.ang) * sl.len / 2, dy = Math.sin(sl.ang) * sl.len / 2;
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(sl.x - dx, sl.y - dy); ctx.lineTo(sl.x + dx, sl.y + dy); ctx.stroke();
+        ctx.strokeStyle = "#f43f5e"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(sl.x - dx, sl.y - dy); ctx.lineTo(sl.x + dx, sl.y + dy); ctx.stroke();
+      }
       ctx.globalAlpha = 1;
       // 데미지 팝업
       ctx.textAlign = "center";
