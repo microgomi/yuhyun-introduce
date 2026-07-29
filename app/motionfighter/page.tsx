@@ -100,6 +100,7 @@ export default function MotionFighter() {
     shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1, dyingLine: "",
     merge: { active: false, t: 0, x: 0, y: 0, done: false, pr: 0, spin: 0 },
     bolts: [] as { x1: number; y1: number; x2: number; y2: number; life: number }[],
+    selfD: false, stageT: [8, 18, 123, 131, 143, 150] as number[], mergeStart: 18, mergeDur: 105,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
@@ -284,7 +285,11 @@ export default function MotionFighter() {
         // KO → 15초 액션 영화 시작
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          S.finish = 150; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          const orbWin = c.hp <= 0 && MODES[modeRef.current].finisher === "orb";
+          S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
+          S.stageT = S.selfD ? [4, 9, 34, 40, 45, 48] : [8, 18, 123, 131, 143, 150];
+          S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
+          S.finish = S.selfD ? 50 : 156; S.finishWin = c.hp <= 0; S.cineStage = -1;
           const loser = c.hp <= 0 ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
@@ -297,9 +302,10 @@ export default function MotionFighter() {
       // 🎬 150초 액션 영화 (105초까지 천천히 합체 → 발사)
       if (S.finish > 0) {
         S.finish -= dt;
-        const elapsed = 150 - S.finish;
-        // 7단계: 0인트로(0~15) 1도발(~35) 2합체진행(~105) 3발사(~116) 4여파(~132) 5마무리(~143) 6결과
-        const stage = elapsed < 15 ? 0 : elapsed < 35 ? 1 : elapsed < 105 ? 2 : elapsed < 116 ? 3 : elapsed < 132 ? 4 : elapsed < 143 ? 5 : 6;
+        const elapsed = (S.selfD ? 50 : 156) - S.finish;
+        // 7단계 (합체=2). 일반: 합체 105초 / 자폭: 25초
+        const t = S.stageT;
+        const stage = elapsed < t[0] ? 0 : elapsed < t[1] ? 1 : elapsed < t[2] ? 2 : elapsed < t[3] ? 3 : elapsed < t[4] ? 4 : elapsed < t[5] ? 5 : 6;
         const md = MODES[modeRef.current];
         if (stage !== S.cineStage) {
           S.cineStage = stage;
@@ -316,15 +322,24 @@ export default function MotionFighter() {
             const loser = win ? c : p;
             loser.hurtT = 6;
             if (win && md.finisher === "orb" && S.merge.active) {
-              // 🟣 합체 완성 → 보라 구 발사 + 전기 대폭발
               S.merge.done = true; S.merge.active = false;
-              S.flash = 1.4; S.shake = 52; sKo();
               const sx = S.merge.x, sy = S.merge.y;
-              const dx = loser.x - sx, dy = (HEAD_Y + loser.yOff) - sy, d = Math.hypot(dx, dy) || 1;
-              S.orbs.push({ x: sx, y: sy, r: 26, life: 2.4, c: "#a855f7", vx: dx / d * 150, vy: dy / d * 150 });
-              for (let i = 0; i < 130; i++) { const a2 = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: sx, y: sy, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 1 + Math.random() * 1.4, c: ["#a855f7", "#c084fc", "#fff", "#818cf8"][i % 4] }); }
-              for (let i = 0; i < 32; i++) { const a2 = Math.random() * Math.PI * 2, ln = 90 + Math.random() * 190; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.55 }); }
-              S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "🟣 보랏빛 소멸!!", life: 1.6, big: true });
+              if (S.selfD) {
+                // 💥 자폭! 자기 중심 초대형 보라 폭발 (오리지널)
+                S.flash = 1.9; S.shake = 62; sKo();
+                S.orbs.push({ x: sx, y: sy, r: 30, life: 2.6, c: "#a855f7", vx: 0, vy: 0 });
+                for (let i = 0; i < 260; i++) { const a2 = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 520; S.parts.push({ x: sx, y: sy, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 1.2 + Math.random() * 1.8, c: ["#a855f7", "#c084fc", "#fff", "#818cf8", "#e9d5ff"][i % 5] }); }
+                for (let i = 0; i < 54; i++) { const a2 = Math.random() * Math.PI * 2, ln = 120 + Math.random() * 260; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.7 }); }
+                S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "💥 자폭─── 소멸!!", life: 2.0, big: true });
+              } else {
+                // 🟣 합체 완성 → 보라 구 발사 + 전기 대폭발
+                S.flash = 1.4; S.shake = 52; sKo();
+                const dx = loser.x - sx, dy = (HEAD_Y + loser.yOff) - sy, d = Math.hypot(dx, dy) || 1;
+                S.orbs.push({ x: sx, y: sy, r: 26, life: 2.4, c: "#a855f7", vx: dx / d * 150, vy: dy / d * 150 });
+                for (let i = 0; i < 130; i++) { const a2 = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: sx, y: sy, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 1 + Math.random() * 1.4, c: ["#a855f7", "#c084fc", "#fff", "#818cf8"][i % 4] }); }
+                for (let i = 0; i < 32; i++) { const a2 = Math.random() * Math.PI * 2, ln = 90 + Math.random() * 190; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.55 }); }
+                S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "🟣 보랏빛 소멸!!", life: 1.6, big: true });
+              }
             } else if (!(win && md.finisher === "orb")) {
               // ⚔️ 참격 즉시 발동! 대폭발
               S.flash = 1.2; S.shake = 44; sKo();
@@ -337,8 +352,8 @@ export default function MotionFighter() {
             }
           }
         }
-        // 합체 진행도 갱신 (35~105초)
-        if (S.merge.active && !S.merge.done) { S.merge.pr = Math.max(0, Math.min(1, (elapsed - 35) / 70)); S.merge.spin += dt; }
+        // 합체 진행도 갱신
+        if (S.merge.active && !S.merge.done) { S.merge.pr = Math.max(0, Math.min(1, (elapsed - S.mergeStart) / S.mergeDur)); S.merge.spin += dt; }
         // 기 모으기 오라 (기 모으는 단계)
         if (S.cineStage === 1 || S.cineStage === 2) {
           const win = S.finishWin, hero = win ? p : c;
