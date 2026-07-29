@@ -170,6 +170,7 @@ const ALL_CHALLENGES: Challenge[] = [
 export default function RecipeMaker() {
   const [screen, setScreen] = useState<Screen>("menu");
   const [coins, setCoins] = useState(1000);
+  const [day, setDay] = useState(1); // 하루 개념 — 날이 지날수록 재료값 상승
   const [ingredients, setIngredients] = useState<Ingredient[]>(ALL_INGREDIENTS.map((i) => ({ ...i })));
   const [recipes, setRecipes] = useState<Recipe[]>(ALL_RECIPES.map((r) => ({ ...r })));
   const [challenges, setChallenges] = useState<Challenge[]>(ALL_CHALLENGES.map((c) => ({ ...c })));
@@ -259,10 +260,15 @@ export default function RecipeMaker() {
     }, 1500);
   };
 
+  // 하루가 지날 때마다 재료값 상승 (하루마다 +20% 복리)
+  const priceOf = (base: number) => Math.round(base * Math.pow(1.2, day - 1));
+
   const buyIngredient = (id: string) => {
     const ing = ingredients.find((i) => i.id === id);
-    if (!ing || ing.owned || coins < ing.cost) return;
-    setCoins((c) => c - ing.cost);
+    if (!ing || ing.owned) return;
+    const price = priceOf(ing.cost);
+    if (coins < price) return;
+    setCoins((c) => c - price);
     setIngredients((prev) => prev.map((i) => i.id === id ? { ...i, owned: true } : i));
   };
 
@@ -302,7 +308,10 @@ export default function RecipeMaker() {
           {/* Header */}
           <div className="mb-3 flex items-center justify-between">
             <Link href="/" className="text-sm text-gray-400 hover:text-white">← 홈으로</Link>
-            <span className="text-yellow-400 font-bold">🪙 {coins.toLocaleString()}</span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-amber-900/50 px-2 py-0.5 text-xs font-bold text-amber-300 border border-amber-500/30">📅 {day}일차</span>
+              <span className="text-yellow-400 font-bold">🪙 {coins.toLocaleString()}</span>
+            </div>
           </div>
 
           {/* Nav */}
@@ -317,6 +326,12 @@ export default function RecipeMaker() {
               🏆 도전
             </button>
           </div>
+
+          {/* 하루 넘기기 */}
+          <button onClick={() => { setDay((d) => d + 1); setCoins((c) => c + 100); }}
+            className="mb-3 w-full rounded-lg bg-indigo-800/50 py-2 text-sm font-bold text-indigo-100 hover:bg-indigo-800/80 border border-indigo-400/30">
+            🌙 다음 날로 넘기기 (용돈 +100 🪙 · 재료값 20%↑ → {day + 1}일차)
+          </button>
 
           {/* Pot */}
           <div className="mb-3 rounded-xl bg-gradient-to-b from-gray-800 to-stone-800 p-4 border border-white/10">
@@ -508,9 +523,15 @@ export default function RecipeMaker() {
         <div className="mx-auto max-w-lg px-4 py-6">
           <div className="mb-4 flex items-center justify-between">
             <button onClick={() => setScreen("kitchen")} className="text-sm text-gray-400 hover:text-white">← 주방으로</button>
-            <span className="text-yellow-400 font-bold">🪙 {coins.toLocaleString()}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-amber-300 text-sm font-bold">📅 {day}일차</span>
+              <span className="text-yellow-400 font-bold">🪙 {coins.toLocaleString()}</span>
+            </div>
           </div>
-          <h2 className="text-2xl font-black mb-4 text-center">🏪 재료 상점</h2>
+          <h2 className="text-2xl font-black mb-1 text-center">🏪 재료 상점</h2>
+          <p className="text-center text-[11px] text-amber-300/80 mb-4">
+            📈 물가 {Math.round((Math.pow(1.2, day - 1) - 1) * 100)}% 상승 (하루 지날수록 재료값이 올라요!)
+          </p>
 
           {locked.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
@@ -526,12 +547,13 @@ export default function RecipeMaker() {
                   <div className={`text-xs font-bold mb-1.5 ${info.color}`}>{info.icon} {info.name}</div>
                   <div className="space-y-1.5">
                     {items.map((ing) => (
-                      <button key={ing.id} onClick={() => buyIngredient(ing.id)} disabled={coins < ing.cost}
+                      <button key={ing.id} onClick={() => buyIngredient(ing.id)} disabled={coins < priceOf(ing.cost)}
                         className="w-full rounded-lg bg-white/5 p-2.5 text-left hover:bg-white/10 transition-all border border-white/10 disabled:opacity-40">
                         <div className="flex items-center gap-3">
                           <span className="text-2xl">{ing.icon}</span>
                           <div className="flex-1 font-bold text-sm">{ing.name}</div>
-                          <span className="text-yellow-400 text-sm">🪙 {ing.cost}</span>
+                          {day > 1 && <span className="text-gray-500 text-xs line-through">{ing.cost}</span>}
+                          <span className="text-yellow-400 text-sm">🪙 {priceOf(ing.cost)}</span>
                         </div>
                       </button>
                     ))}
@@ -543,6 +565,9 @@ export default function RecipeMaker() {
 
           <button onClick={() => setCoins((c) => c + 50)} className="w-full mt-4 rounded-lg bg-yellow-800/50 py-2 text-sm text-yellow-300 hover:bg-yellow-800/80 border border-yellow-500/20">
             🎁 무료 코인 +50
+          </button>
+          <button onClick={() => { setDay((d) => d + 1); setCoins((c) => c + 100); }} className="w-full mt-2 rounded-lg bg-indigo-800/50 py-2 text-sm text-indigo-200 hover:bg-indigo-800/80 border border-indigo-400/20">
+            🌙 다음 날로 (용돈 +100 🪙 · 재료값 20%↑ → {day + 1}일차)
           </button>
         </div>
       </div>
