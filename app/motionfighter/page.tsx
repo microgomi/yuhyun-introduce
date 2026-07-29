@@ -39,14 +39,14 @@ const KIND: Record<Kind, { origin: "sh" | "hip"; base: number; reach: number; dm
 const legKind = (k: Kind) => k === "kick" || k === "spin";
 const armKind = (k: Kind) => k === "punch" || k === "smash" || k === "slam";
 type Attack = { active: boolean; t: number; hitDone: boolean; kind: Kind; aim: number; air: boolean };
-type Fighter = { x: number; hp: number; aim: number; legAim: number; atk: Attack; hurtT: number; yOff: number; jumpT: number };
-const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2, air: false }, hurtT: 0, yOff: 0, jumpT: 0 });
+type Fighter = { x: number; hp: number; aim: number; legAim: number; atk: Attack; hurtT: number; yOff: number; jumpT: number; reachMul: number };
+const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2, air: false }, hurtT: 0, yOff: 0, jumpT: 0, reachMul: 1 });
 
 function limbTip(f: Fighter, dir: number, kind: Kind, ext: number) {
   const cfg = KIND[kind];
   const originY = (cfg.origin === "sh" ? SHOULDER_Y : HIP_Y) + f.yOff;
   const aim = f.atk.aim;
-  const len = cfg.base + cfg.reach * ext;
+  const len = cfg.base + cfg.reach * f.reachMul * ext; // 사거리 조작 반영
   return { x: f.x + dir * len * Math.cos(aim), y: originY + len * Math.sin(aim) };
 }
 
@@ -69,7 +69,9 @@ export default function MotionFighter() {
   const [combo, setCombo] = useState(0);
   const [airborne, setAirborne] = useState(false);
   const airborneRef = useRef(false);
-  const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false });
+  const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false, reachUp: false, reachDown: false });
+  const [reachPct, setReachPct] = useState(100);
+  const reachRef = useRef(100);
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
@@ -129,6 +131,10 @@ export default function MotionFighter() {
           if (held.current.aimDown) p.aim += 2.2 * dt;
           if (held.current.legUp) p.legAim -= 2.2 * dt;
           if (held.current.legDown) p.legAim += 2.2 * dt;
+          if (held.current.reachUp) p.reachMul = Math.min(2.2, p.reachMul + 1.1 * dt);
+          if (held.current.reachDown) p.reachMul = Math.max(0.5, p.reachMul - 1.1 * dt);
+          const rp = Math.round(p.reachMul * 100);
+          if (rp !== reachRef.current) { reachRef.current = rp; setReachPct(rp); }
         }
 
         // 점프 물리 (yOff: 위로 떴다가 착지)
@@ -271,10 +277,11 @@ export default function MotionFighter() {
     const showAim = isPlayer && !f.atk.active && phaseRef.current === "fight" && g.current.turn === "p" && !g.current.over;
     if (showAim) {
       ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
+      const armLen = 14 + 60 * f.reachMul, legLen = 18 + 92 * f.reachMul; // 사거리 반영
       ctx.strokeStyle = "rgba(250,204,21,0.65)"; // 팔
-      ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x + dir * 82 * Math.cos(f.aim), shY + 82 * Math.sin(f.aim)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x + dir * armLen * Math.cos(f.aim), shY + armLen * Math.sin(f.aim)); ctx.stroke();
       ctx.strokeStyle = "rgba(251,146,60,0.65)"; // 다리
-      ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + dir * 100 * Math.cos(f.legAim), hipY + 100 * Math.sin(f.legAim)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + dir * legLen * Math.cos(f.legAim), hipY + legLen * Math.sin(f.legAim)); ctx.stroke();
       ctx.restore();
     }
 
@@ -326,6 +333,8 @@ export default function MotionFighter() {
         case "ArrowDown": case "s": case "S": setHold("aimDown", true); break;
         case "ArrowLeft": setHold("legUp", true); break;
         case "ArrowRight": setHold("legDown", true); break;
+        case "e": case "E": setHold("reachUp", true); break;
+        case "q": case "Q": setHold("reachDown", true); break;
         case " ": case "z": case "Z": e.preventDefault(); doJump(); break;
         case "j": case "J": doAttack("punch"); break;
         case "k": case "K": doAttack("kick"); break;
@@ -339,6 +348,8 @@ export default function MotionFighter() {
       if (["ArrowDown", "s", "S"].includes(e.key)) setHold("aimDown", false);
       if (e.key === "ArrowLeft") setHold("legUp", false);
       if (e.key === "ArrowRight") setHold("legDown", false);
+      if (["e", "E"].includes(e.key)) setHold("reachUp", false);
+      if (["q", "Q"].includes(e.key)) setHold("reachDown", false);
     };
     window.addEventListener("keydown", dn); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", dn); window.removeEventListener("keyup", up); };
@@ -407,6 +418,11 @@ export default function MotionFighter() {
           {holdBtn("legUp", "🔼다리")}
           {holdBtn("legDown", "🔽다리")}
         </div>
+        <div className="mt-1.5 grid grid-cols-3 gap-1.5 items-center">
+          {holdBtn("reachDown", "➖ 사거리")}
+          <div className="text-center text-sm font-black text-cyan-300">📏 {reachPct}%</div>
+          {holdBtn("reachUp", "➕ 사거리")}
+        </div>
         <div className="mt-1.5 grid grid-cols-3 gap-1.5">
           <button onClick={doJump} disabled={!myTurn} className={`rounded-xl py-3.5 text-base font-black active:scale-90 ${myTurn ? "bg-purple-600 active:bg-purple-500" : "bg-slate-800 text-slate-500"}`}>⬆️ 점프</button>
           <button onClick={() => doAttack("punch")} disabled={!myTurn} className={`rounded-xl py-3.5 text-base font-black active:scale-90 ${myTurn ? "bg-amber-600 active:bg-amber-500" : "bg-slate-800 text-slate-500"}`}>👊 펀치</button>
@@ -418,7 +434,7 @@ export default function MotionFighter() {
           <button onClick={() => doAttack("spin")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-fuchsia-700 active:bg-fuchsia-600" : "bg-slate-800 text-slate-500"}`}>🌀 돌려차기</button>
         </div>
         <p className="text-center text-[11px] text-gray-300 mt-2"><b>스킬</b>: 👊펀치 🦵킥 💥스매쉬(강) ⬇️내려찍기(공중강) 🌀돌려차기 · <b>머리=크리티컬</b> · <b>점프 콤보 1.5배!</b> 각도 무제한(360°)</p>
-        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓팔·←→다리·Space점프·J펀치·K킥·L스매쉬·O내려찍기·U돌려차기</p>
+        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓팔·←→다리·Q/E사거리·Space점프·J펀치·K킥·L스매쉬·O내려찍기·U돌려차기</p>
       </div>
     </div>
   );
