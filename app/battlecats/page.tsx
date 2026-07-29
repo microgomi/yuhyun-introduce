@@ -57,7 +57,7 @@ interface Stage {
   reward: number;
 }
 
-type Screen = "menu" | "stageSelect" | "battle" | "victory" | "defeat" | "gacha" | "gachaResult" | "upgrade" | "lineup";
+type Screen = "menu" | "stageSelect" | "battle" | "victory" | "defeat" | "gacha" | "gachaResult" | "upgrade" | "lineup" | "dex";
 type GachaRarity = "rare" | "superRare" | "uber" | "legend";
 
 // --- Constants ---
@@ -749,6 +749,9 @@ export default function BattleCatsPage() {
             <button onClick={() => setScreen("lineup")} className="w-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 py-4 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
               🧩 편성 ({lineup.length > 0 ? lineup.length : Math.min(availableCats.length, MAX_LINEUP)}/{MAX_LINEUP})
             </button>
+            <button onClick={() => setScreen("dex")} className="w-full rounded-full bg-gradient-to-r from-rose-500 to-orange-500 py-4 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
+              📖 도감
+            </button>
             <Link href="/" className="block w-full rounded-full border-2 border-amber-300 bg-white/80 dark:bg-slate-800/80 py-3 text-center text-sm font-bold text-amber-600 dark:text-amber-400 transition-transform hover:scale-105 active:scale-95">
               🏠 소개페이지로
             </Link>
@@ -1275,6 +1278,66 @@ export default function BattleCatsPage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* === DEX (도감) === */}
+        {screen === "dex" && (
+          <div className="w-full max-w-md space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-black">📖 도감</h2>
+              <button onClick={() => setScreen("menu")} className="text-sm text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-white">뒤로</button>
+            </div>
+
+            {/* 아군 냥이 도감 */}
+            <p className="text-sm font-black text-amber-600 dark:text-amber-400">🐱 아군 냥이 ({[...CAT_TYPES, ...GACHA_CATS].filter((c) => ("unlockStage" in c ? c.unlockStage <= clearedStages.length : ownedGachaCats.includes(c.id))).length}/{CAT_TYPES.length + GACHA_CATS.length})</p>
+            <div className="space-y-1.5">
+              {[
+                ...CAT_TYPES.map((c) => ({ cat: c, owned: c.unlockStage <= clearedStages.length, rarity: null as GachaRarity | null })),
+                ...GACHA_CATS.map((c) => ({ cat: c, owned: ownedGachaCats.includes(c.id), rarity: c.rarity })),
+              ].map(({ cat, owned, rarity }) => {
+                const lvl = catLevels[cat.id] ?? 1;
+                const ri = rarity ? RARITY_INFO[rarity] : null;
+                return (
+                  <div key={cat.id} className={`flex items-center gap-2 rounded-xl border p-2 ${owned ? (ri ? ri.border : "border-amber-300 dark:border-amber-700") : "border-slate-200 bg-slate-100/60 dark:border-slate-800 dark:bg-slate-900/60 opacity-60"}`}>
+                    {owned ? (
+                      <div className="flex items-center gap-0.5 text-xl">
+                        <span>{cat.emoji}</span>
+                        <span className="text-[10px] text-slate-400">▸</span>
+                        <span title="진화">{EVO_EMOJI[cat.id]?.[0] ?? cat.emoji + "✨"}</span>
+                        <span className="text-[10px] text-slate-400">▸</span>
+                        <span title="초진화">{EVO_EMOJI[cat.id]?.[1] ?? cat.emoji + "🌟"}</span>
+                      </div>
+                    ) : (
+                      <span className="text-xl">❓</span>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">
+                        {owned ? cat.name : "???"}
+                        {owned && <span className="ml-1 text-emerald-500">Lv.{lvl}</span>}
+                        {ri && <span className={`ml-1 text-[9px] font-bold ${ri.color}`}>{ri.name}</span>}
+                      </p>
+                      {owned && <p className="text-[9px] text-slate-500 dark:text-slate-400">❤️{cat.hp} ⚔️{cat.atk} 📏{cat.range} 💰{cat.cost}</p>}
+                      {owned && cat.desc && <p className="text-[9px] text-slate-400 truncate">{cat.desc}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 적 도감 */}
+            <p className="pt-2 text-sm font-black text-red-600 dark:text-red-400">👾 적 도감 ({ENEMY_TYPES.length})</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {ENEMY_TYPES.map((e) => (
+                <div key={e.id} className="flex items-center gap-2 rounded-xl border border-red-200 bg-white/70 dark:border-red-900 dark:bg-slate-800/70 p-2">
+                  <span className="text-2xl">{e.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold truncate">{e.name}</p>
+                    <p className="text-[9px] text-slate-500 dark:text-slate-400">❤️{e.hp} ⚔️{e.atk}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
