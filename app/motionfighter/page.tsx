@@ -109,6 +109,24 @@ export default function MotionFighter() {
     });
   }, []);
 
+  // ───── 키보드 조작 ─────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat && !["ArrowLeft", "ArrowRight", "a", "d", "A", "D"].includes(e.key)) return;
+      switch (e.key) {
+        case "ArrowLeft": case "a": case "A": move(-1); break;
+        case "ArrowRight": case "d": case "D": move(1); break;
+        case "j": case "J": case "z": case "Z": attack("punch"); break;
+        case "k": case "K": case "x": case "X": attack("kick"); break;
+        case "l": case "L": case "c": case "C": attack("special"); break;
+        case "ArrowDown": case "s": case "S": case "Shift": case " ": e.preventDefault(); block(); break;
+        default: return;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [move, attack, block]);
+
   // ───── 게임 루프 (CPU AI + 타이머) ─────
   useEffect(() => {
     const iv = setInterval(() => {
@@ -256,6 +274,7 @@ export default function MotionFighter() {
           </button>
         </div>
         <p className="text-center text-[11px] text-gray-400 mt-2">◀▶ 이동 · 👊펀치(빠름) · 🦵킥(강함) · 🛡️방어 · 🔥필살기(게이지 꽉차면)</p>
+        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ 키보드: ←→(이동) · J/Z(펀치) · K/X(킥) · L/C(필살기) · ↓/Space(방어)</p>
       </div>
     </div>
   );
