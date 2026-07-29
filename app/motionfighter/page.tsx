@@ -100,7 +100,7 @@ export default function MotionFighter() {
     shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1, dyingLine: "",
     merge: { active: false, t: 0, x: 0, y: 0, done: false, pr: 0, spin: 0 },
     bolts: [] as { x1: number; y1: number; x2: number; y2: number; life: number }[],
-    selfD: false, stageT: [8, 18, 123, 131, 143, 150] as number[], mergeStart: 18, mergeDur: 105,
+    selfD: false, stageT: [8, 18, 123, 131, 143, 150] as number[], mergeStart: 18, mergeDur: 105, winMode: "azure" as ModeKey,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
@@ -116,6 +116,9 @@ export default function MotionFighter() {
   const [twoP, setTwoP] = useState(false); // 2인 대전 (턴 번갈아 같은 조작)
   const twoPRef = useRef(false);
   useEffect(() => { twoPRef.current = twoP; }, [twoP]);
+  const [mode2, setMode2] = useState<ModeKey>("crimson"); // P2 모드
+  const mode2Ref = useRef<ModeKey>("crimson");
+  useEffect(() => { mode2Ref.current = mode2; }, [mode2]);
   const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false, reachUp: false, reachDown: false });
   const [reachPct, setReachPct] = useState(100);
   const reachRef = useRef(100);
@@ -301,14 +304,15 @@ export default function MotionFighter() {
         // KO → 15초 액션 영화 시작
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          const orbWin = c.hp <= 0 && MODES[modeRef.current].finisher === "orb";
+          const pWon = c.hp <= 0;
+          S.winMode = pWon ? modeRef.current : (twoPRef.current ? mode2Ref.current : "crimson"); // 이긴 쪽 모드
+          const orbWin = MODES[S.winMode].finisher === "orb";
           S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
-          // 단계 경계(초): [인트로끝, 도발끝, 합체끝, 발사끝, 여파끝, 마무리끝]
-          // 합체(2)가 길고, 발사(3) 후엔 바로 쓰러지고 곧 결과
+          // 단계 경계(초): 합체(2)가 길고, 발사(3) 후엔 바로 쓰러지고 곧 결과
           S.stageT = S.selfD ? [4, 9, 40, 43, 45, 47] : [5, 11, 50, 53, 55, 57];
           S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
-          S.finish = S.selfD ? 50 : 60; S.finishWin = c.hp <= 0; S.cineStage = -1;
-          const loser = c.hp <= 0 ? c : p;
+          S.finish = S.selfD ? 50 : 60; S.finishWin = pWon; S.cineStage = -1;
+          const loser = pWon ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
           setMsg("");
@@ -324,22 +328,24 @@ export default function MotionFighter() {
         // 7단계 (합체=2). 일반 60초(합체 25초) / 자폭 50초(합체 20초)
         const t = S.stageT;
         const stage = elapsed < t[0] ? 0 : elapsed < t[1] ? 1 : elapsed < t[2] ? 2 : elapsed < t[3] ? 3 : elapsed < t[4] ? 4 : elapsed < t[5] ? 5 : 6;
-        const md = MODES[modeRef.current];
+        const md = MODES[S.winMode]; // 이긴 쪽 모드
         if (stage !== S.cineStage) {
           S.cineStage = stage;
-          const win = S.finishWin;
-          const LINES = win ? md.cry : DEFEAT_CRY;
-          setCine({ active: true, line: LINES[stage], loserLine: stage === 4 ? S.dyingLine : "", win, stage });
+          const win = S.finishWin; // P1이 이겼나 (결과 표시 색상용)
+          const winner = win ? p : c, wdir = win ? 1 : -1;
+          let line = md.cry[stage]; // 승자가 외침
+          if (stage === 6) line = twoPRef.current ? (win ? "P1 승리!" : "P2 승리!") : (win ? "승 리!" : "패 배...");
+          setCine({ active: true, line, loserLine: stage === 4 ? S.dyingLine : "", win, stage });
           if (stage <= 2) beep(200, 0.22, "sawtooth", 0.09); // 외침
-          if (stage === 2 && win && md.finisher === "orb") {
-            // 🔵+🔴 합체 시작 (35~105초 천천히)
-            S.merge = { active: true, t: 0, x: p.x + 48, y: SHOULDER_Y - 12 + p.yOff, done: false, pr: 0, spin: 0 };
+          if (stage === 2 && md.finisher === "orb") {
+            // 🔵+🔴 합체 시작 (승자 위치에서)
+            S.merge = { active: true, t: 0, x: winner.x + wdir * 48, y: SHOULDER_Y - 12 + winner.yOff, done: false, pr: 0, spin: 0 };
             beep(160, 0.3, "sine", 0.07);
           }
           if (stage === 3) {
             const loser = win ? c : p;
             loser.hurtT = 6;
-            if (win && md.finisher === "orb" && S.merge.active) {
+            if (md.finisher === "orb" && S.merge.active) {
               S.merge.done = true; S.merge.active = false;
               const sx = S.merge.x, sy = S.merge.y;
               if (S.selfD) {
@@ -358,14 +364,14 @@ export default function MotionFighter() {
                 for (let i = 0; i < 32; i++) { const a2 = Math.random() * Math.PI * 2, ln = 90 + Math.random() * 190; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.55 }); }
                 S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "🟣 보랏빛 소멸!!", life: 1.6, big: true });
               }
-            } else if (!(win && md.finisher === "orb")) {
-              // ⚔️ 참격 즉시 발동! 대폭발
+            } else if (md.finisher !== "orb") {
+              // ⚔️ 참격 즉시 발동! 대폭발 (승자 모드 색)
               S.flash = 1.2; S.shake = 44; sKo();
-              const cols = win ? [md.color, md.aura, "#fff", "#fde047"] : ["#fff", "#f43f5e", "#a855f7", "#fde047"];
+              const cols = [md.color, md.aura, "#fff", "#fde047"];
               for (let i = 0; i < 130; i++) { const ang = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 1.0 + Math.random() * 1.4, c: cols[i % 4] }); }
               for (let i = 0; i < 12; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
-              S.orbs.push({ x: loser.x, y: HEAD_Y + loser.yOff, r: 8, life: 1.3, c: win ? md.color : "#f43f5e", vx: 0, vy: 0 });
-              loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
+              S.orbs.push({ x: loser.x, y: HEAD_Y + loser.yOff, r: 8, life: 1.3, c: md.color, vx: 0, vy: 0 });
+              loser.x = Math.max(38, Math.min(322, loser.x + wdir * 20));
               S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
             }
           }
@@ -374,8 +380,8 @@ export default function MotionFighter() {
         if (S.merge.active && !S.merge.done) { S.merge.pr = Math.max(0, Math.min(1, (elapsed - S.mergeStart) / S.mergeDur)); S.merge.spin += dt; }
         // 기 모으기 오라 (기 모으는 단계)
         if (S.cineStage === 1 || S.cineStage === 2) {
-          const win = S.finishWin, hero = win ? p : c;
-          if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: win ? md.aura : "#fb7185" }); }
+          const hero = S.finishWin ? p : c; // 승자에게 오라
+          if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: md.aura }); }
         }
         // 💀 패자 쓰러지는 연출 (참격 이후 서서히 넘어짐)
         if (S.cineStage >= 3) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 1.0); }
@@ -429,7 +435,7 @@ export default function MotionFighter() {
       ctx.fillStyle = S.turn === "p" ? "rgba(56,189,248,0.15)" : "rgba(251,113,133,0.15)";
       ctx.fillRect(S.turn === "p" ? -20 : W / 2, -20, W / 2 + 20, H + 40);
       drawFighter(ctx, p, 1, MODES[modeRef.current].color, true);
-      drawFighter(ctx, c, -1, "#fb7185", false);
+      drawFighter(ctx, c, -1, twoPRef.current ? MODES[mode2Ref.current].color : "#fb7185", false);
       // 파편
       for (const pa of S.parts) { ctx.globalAlpha = Math.min(1, pa.life * 2.5); ctx.fillStyle = pa.c; ctx.beginPath(); ctx.arc(pa.x, pa.y, 3, 0, 7); ctx.fill(); }
       ctx.globalAlpha = 1;
@@ -615,15 +621,31 @@ export default function MotionFighter() {
         </div>
 
         {/* 모드 선택 (P1) */}
+        {twoP && <div className="text-[10px] font-bold text-sky-300 mb-0.5">🔵 P1 모드</div>}
         <div className="mb-2 grid grid-cols-2 gap-1.5">
           {(Object.keys(MODES) as ModeKey[]).map((k) => (
             <button key={k} onClick={() => setMode(k)} disabled={cine.active}
               className={`rounded-lg py-1.5 text-xs font-black border-2 transition-all ${mode === k ? "border-white scale-105" : "border-transparent opacity-55"}`}
               style={{ background: MODES[k].color + "2e", color: MODES[k].color }}>
-              {MODES[k].name}{twoP ? " (P1)" : ""}
+              {MODES[k].name}
             </button>
           ))}
         </div>
+        {/* 모드 선택 (P2) — 2인 모드에서만 */}
+        {twoP && (
+          <>
+            <div className="text-[10px] font-bold text-rose-300 mb-0.5">🔴 P2 모드</div>
+            <div className="mb-2 grid grid-cols-2 gap-1.5">
+              {(Object.keys(MODES) as ModeKey[]).map((k) => (
+                <button key={k} onClick={() => setMode2(k)} disabled={cine.active}
+                  className={`rounded-lg py-1.5 text-xs font-black border-2 transition-all ${mode2 === k ? "border-white scale-105" : "border-transparent opacity-55"}`}
+                  style={{ background: MODES[k].color + "2e", color: MODES[k].color }}>
+                  {MODES[k].name}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* 차례 배너 */}
         <div className={`mb-2 rounded-lg py-1 text-center text-sm font-black ${turn === "p" && phase === "fight" ? "bg-sky-500/30 text-sky-200" : phase === "fight" ? "bg-red-500/30 text-red-200" : "bg-slate-700 text-slate-300"}`}>
