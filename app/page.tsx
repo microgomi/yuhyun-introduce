@@ -177,6 +177,13 @@ export default function Home() {
                 href: "/battlecats",
               },
               {
+                emoji: "🧟",
+                title: "좀비 디펜스",
+                desc: "좀비를 쏘고 바리케이드를 지켜라!",
+                bg: "from-purple-600 to-green-700",
+                href: "/zombiedefense",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
