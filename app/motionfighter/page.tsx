@@ -44,9 +44,9 @@ const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05
 
 // 🎭 오리지널 초강력 모드 (저작권 캐릭터 아님 — 우리만의 창작)
 const MODES = {
-  azure: { name: "🔵 창천검성", color: "#38bdf8", aura: "#38bdf8", slash: "#7dd3fc",
-    cry: ["…바람이, 멎었다.", "여기까지 잘 버텼다. 인정하지.", "허나─── 이제 끝을 낼 시간이다.", "천공─────섬!!!", "베는 건 한 번이면 충분하다.", "…잘 가라, 강적이여.", "승 리"] },
-  crimson: { name: "🔴 마염패왕", color: "#f43f5e", aura: "#f97316", slash: "#fb7185",
+  azure: { name: "🔵 창천검성", color: "#38bdf8", aura: "#a855f7", slash: "#7dd3fc", finisher: "orb" as const, orbColor: "#a855f7",
+    cry: ["…바람이, 멎었다.", "여기까지 잘 버텼다. 인정하지.", "허나─── 이 빛은 피할 수 없다.", "보랏빛─────소멸!!!", "닿는 순간, 존재가 지워진다.", "…잘 가라, 강적이여.", "승 리"] },
+  crimson: { name: "🔴 마염패왕", color: "#f43f5e", aura: "#f97316", slash: "#fb7185", finisher: "slash" as const, orbColor: "#f43f5e",
     cry: ["크크… 슬슬 지루해지는군.", "제법이야. 날 여기까지 오게 하다니.", "허나 불꽃 앞에선 전부 재가 된다.", "업화─────참!!!", "타올라라. 남김없이.", "…이것이 힘의 차이다.", "승 리"] },
 };
 type ModeKey = keyof typeof MODES;
@@ -77,7 +77,7 @@ export default function MotionFighter() {
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
-    orbs: [] as { x: number; y: number; r: number; life: number; c: string }[],
+    orbs: [] as { x: number; y: number; r: number; life: number; c: string; vx: number; vy: number }[],
   });
   const [combo, setCombo] = useState(0);
   const [airborne, setAirborne] = useState(false);
@@ -258,7 +258,7 @@ export default function MotionFighter() {
         // KO → 15초 액션 영화 시작
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          S.finish = 20; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          S.finish = 45; S.finishWin = c.hp <= 0; S.cineStage = -1;
           const loser = c.hp <= 0 ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
@@ -271,9 +271,9 @@ export default function MotionFighter() {
       // 🎬 15초 액션 영화 (대사 → 기 모으기 → 참격 → 여파 → 결과)
       if (S.finish > 0) {
         S.finish -= dt;
-        const elapsed = 20 - S.finish;
-        // 7단계 (참격=3): 0인트로 1도발 2기모으기 3참격 4여파 5마무리 6결과
-        const stage = elapsed < 3 ? 0 : elapsed < 6 ? 1 : elapsed < 9.5 ? 2 : elapsed < 11 ? 3 : elapsed < 14.5 ? 4 : elapsed < 17.5 ? 5 : 6;
+        const elapsed = 45 - S.finish;
+        // 7단계 (필살기=3): 0인트로 1도발 2기모으기 3필살기 4여파 5마무리 6결과
+        const stage = elapsed < 7 ? 0 : elapsed < 15 ? 1 : elapsed < 24 ? 2 : elapsed < 27 ? 3 : elapsed < 34 ? 4 : elapsed < 40 ? 5 : 6;
         const md = MODES[modeRef.current];
         if (stage !== S.cineStage) {
           S.cineStage = stage;
@@ -282,15 +282,25 @@ export default function MotionFighter() {
           setCine({ active: true, line: LINES[stage], loserLine: stage === 4 ? S.dyingLine : "", win, stage });
           if (stage <= 2) beep(200, 0.22, "sawtooth", 0.09); // 외침
           if (stage === 3) {
-            // ⚔️ 참격 발동! 대폭발
+            // 필살기 발동! 대폭발
             const loser = win ? c : p;
             S.flash = 1.2; S.shake = 44; sKo();
             const cols = win ? [md.color, md.aura, "#fff", "#fde047"] : ["#fff", "#f43f5e", "#a855f7", "#fde047"];
             for (let i = 0; i < 130; i++) { const ang = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 1.0 + Math.random() * 1.4, c: cols[i % 4] }); }
-            for (let i = 0; i < 12; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
-            S.orbs.push({ x: loser.x, y: HEAD_Y + loser.yOff, r: 8, life: 1.3, c: win ? md.color : "#f43f5e" }); // 동그란 에너지 구
-            loser.hurtT = 6; loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
-            S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
+            loser.hurtT = 6;
+            if (win && md.finisher === "orb") {
+              // 🟣 보라색 에너지 구가 날아가서 명중
+              const sx = p.x + 22, sy = SHOULDER_Y + p.yOff;
+              const dx = loser.x - sx, dy = (HEAD_Y + loser.yOff) - sy, d = Math.hypot(dx, dy) || 1;
+              S.orbs.push({ x: sx, y: sy, r: 20, life: 1.8, c: md.orbColor, vx: dx / d * 130, vy: dy / d * 130 });
+              S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "🟣 보랏빛 소멸!!", life: 1.4, big: true });
+            } else {
+              // ⚔️ 참격 (베기 궤적)
+              for (let i = 0; i < 12; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
+              S.orbs.push({ x: loser.x, y: HEAD_Y + loser.yOff, r: 8, life: 1.3, c: win ? md.color : "#f43f5e", vx: 0, vy: 0 });
+              loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
+              S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
+            }
           }
         }
         // 기 모으기 오라 (기 모으는 단계)
@@ -317,7 +327,7 @@ export default function MotionFighter() {
       if (S.flash > 0) S.flash = Math.max(0, S.flash - edt);
       for (const sl of S.slashes) sl.life -= edt;
       if (S.slashes.length) S.slashes = S.slashes.filter((sl) => sl.life > 0);
-      for (const ob of S.orbs) { ob.r += 135 * edt; ob.life -= edt; }
+      for (const ob of S.orbs) { ob.x += ob.vx * edt; ob.y += ob.vy * edt; ob.r += (ob.vx || ob.vy ? 55 : 135) * edt; ob.life -= edt; }
       if (S.orbs.length) S.orbs = S.orbs.filter((o) => o.life > 0);
       if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0 && S.combo !== 0) { S.combo = 0; setCombo(0); } }
 
