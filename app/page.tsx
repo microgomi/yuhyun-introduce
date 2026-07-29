@@ -184,6 +184,13 @@ export default function Home() {
                 href: "/zombiedefense",
               },
               {
+                emoji: "🥋",
+                title: "모션파이터",
+                desc: "펀치·킥·필살기로 격투 대결!",
+                bg: "from-indigo-600 to-red-600",
+                href: "/motionfighter",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
