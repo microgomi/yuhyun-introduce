@@ -308,8 +308,8 @@ export default function MotionFighter() {
           S.winMode = pWon ? modeRef.current : (twoPRef.current ? mode2Ref.current : "crimson"); // 이긴 쪽 모드
           const orbWin = MODES[S.winMode].finisher === "orb";
           S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
-          // 단계 경계(초): 합체(2)가 길고, 발사(3) 후엔 즉시 쓰러지고 바로 결과
-          S.stageT = S.selfD ? [4, 9, 42, 44, 45, 47] : [5, 11, 52, 54, 55, 57];
+          // 단계 경계(초): 합체(2) 길게, 발사(3) 직후 즉사 + 바로 결과
+          S.stageT = S.selfD ? [4, 9, 44, 45, 46, 47] : [5, 11, 55, 56, 57, 58];
           S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
           S.finish = S.selfD ? 50 : 60; S.finishWin = pWon; S.cineStage = -1;
           const loser = pWon ? c : p;
@@ -344,7 +344,7 @@ export default function MotionFighter() {
           }
           if (stage === 3) {
             const loser = win ? c : p;
-            loser.hurtT = 6;
+            loser.hurtT = 6; loser.deadFall = 0.45; // 터지는 순간 바로 쓰러지기 시작
             if (md.finisher === "orb" && S.merge.active) {
               S.merge.done = true; S.merge.active = false;
               const sx = S.merge.x, sy = S.merge.y;
@@ -384,7 +384,7 @@ export default function MotionFighter() {
           if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: md.aura }); }
         }
         // 💀 패자 쓰러지는 연출 (참격 이후 서서히 넘어짐)
-        if (S.cineStage >= 3) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 3.0); }
+        if (S.cineStage >= 3) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 6.0); }
         // 🔵+🔴 합체 → 완성되면 🟣 발사 + 대폭발
         if (S.merge.active) {
           S.merge.t += dt;
