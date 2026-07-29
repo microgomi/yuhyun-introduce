@@ -162,6 +162,12 @@ const GAMES: GameDef[] = [
   { name: "사이버펑크 4K", emoji: "🤖", required: 120, optimal: 200, ultra: 300, cpuWeight: 0.25, gpuWeight: 0.75, ramMin: 4, storageHelp: true, resolution: "4K", desc: "4K + 패스트레이싱" },
   { name: "8K 렌더링", emoji: "🖥️", required: 180, optimal: 260, ultra: 350, cpuWeight: 0.3, gpuWeight: 0.7, ramMin: 5, storageHelp: true, resolution: "8K", desc: "8K 해상도 출력" },
   { name: "VR 고사양", emoji: "🥽", required: 150, optimal: 230, ultra: 320, cpuWeight: 0.35, gpuWeight: 0.65, ramMin: 4, storageHelp: true, resolution: "VR", desc: "VR 울트라 90fps" },
+  // 🔥 최고급 게임 (오류 등급 부품이라야 제대로 돌아감)
+  { name: "GTA 6 (RTX ON)", emoji: "🌆", required: 250, optimal: 400, ultra: 600, cpuWeight: 0.35, gpuWeight: 0.65, ramMin: 5, storageHelp: true, resolution: "4K", desc: "차세대 오픈월드, 풀 레이트레이싱" },
+  { name: "블랙 미스: 오공 8K", emoji: "🐒", required: 300, optimal: 500, ultra: 750, cpuWeight: 0.3, gpuWeight: 0.7, ramMin: 5, storageHelp: true, resolution: "8K", desc: "8K 패스트레이싱, 극한 그래픽" },
+  { name: "메타버스 풀다이브 VR", emoji: "🕶️", required: 400, optimal: 650, ultra: 950, cpuWeight: 0.4, gpuWeight: 0.6, ramMin: 6, storageHelp: true, resolution: "16K VR", desc: "양안 16K, 인간 시각 한계 초월" },
+  { name: "실시간 우주 시뮬레이션", emoji: "🌌", required: 600, optimal: 1000, ultra: 1500, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 7, storageHelp: true, resolution: "∞K", desc: "은하 1000억개 실시간 물리 연산" },
+  { name: "⚠️ E̷R̷R̷O̷R̷ 게임 ⚠️", emoji: "👾", required: 1000, optimal: 1800, ultra: 2800, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 7, storageHelp: true, resolution: "현실붕괴", desc: "존재하면 안 되는 게임. 오류 PC만 실행 가능." },
 ];
 
 /* ───── 현실적 성능 계산 ───── */
