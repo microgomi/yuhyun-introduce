@@ -162,10 +162,10 @@ interface GachaCat {
 }
 
 const RARITY_INFO: Record<GachaRarity, { name: string; color: string; bg: string; chance: number; border: string }> = {
-  rare: { name: "레어", color: "text-blue-400", bg: "bg-blue-500", chance: 69, border: "border-blue-400" },
-  superRare: { name: "슈퍼레어", color: "text-purple-400", bg: "bg-purple-500", chance: 22, border: "border-purple-400" },
-  uber: { name: "울트라레어", color: "text-yellow-400", bg: "bg-yellow-500", chance: 8, border: "border-yellow-400" },
-  legend: { name: "레전드레어", color: "text-red-400", bg: "bg-red-500", chance: 1, border: "border-red-400" },
+  rare: { name: "레어", color: "text-blue-400", bg: "bg-blue-500", chance: 15, border: "border-blue-400" },
+  superRare: { name: "슈퍼레어", color: "text-purple-400", bg: "bg-purple-500", chance: 40, border: "border-purple-400" },
+  uber: { name: "울트라레어", color: "text-yellow-400", bg: "bg-yellow-500", chance: 40, border: "border-yellow-400" },
+  legend: { name: "레전드레어", color: "text-red-400", bg: "bg-red-500", chance: 5, border: "border-red-400" },
 };
 
 const GACHA_CATS: GachaCat[] = [
