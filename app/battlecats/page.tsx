@@ -44,6 +44,8 @@ interface Unit {
   atkSpeed: number;
   atkTimer: number;
   side: "cat" | "enemy";
+  atkFlash?: number; // 공격 모션 (>0이면 공격 자세 + 💥)
+  hurtFlash?: number; // 피격 모션 (>0이면 빨갛게 번쩍)
 }
 
 interface Stage {
@@ -393,8 +395,10 @@ export default function BattleCatsPage() {
           cat.atkTimer++;
           if (cat.atkTimer >= cat.atkSpeed) {
             cat.atkTimer = 0;
+            cat.atkFlash = 3; // 공격 모션
             if (nearestEnemy && distToEnemy <= cat.range) {
               nearestEnemy.hp -= cat.atk;
+              nearestEnemy.hurtFlash = 2; // 피격 모션
             } else if (distToBase <= cat.range) {
               setEnemyBaseHp((h) => Math.max(0, h - cat.atk));
             }
@@ -413,8 +417,10 @@ export default function BattleCatsPage() {
           enemy.atkTimer++;
           if (enemy.atkTimer >= enemy.atkSpeed) {
             enemy.atkTimer = 0;
+            enemy.atkFlash = 3; // 공격 모션
             if (nearestCat && distToCat <= enemy.range) {
               nearestCat.hp -= enemy.atk;
+              nearestCat.hurtFlash = 2; // 피격 모션
             } else if (distToBase <= enemy.range) {
               setCatBaseHp((h) => Math.max(0, h - enemy.atk));
             }
@@ -422,6 +428,12 @@ export default function BattleCatsPage() {
         } else {
           enemy.x -= enemy.speed * 0.3;
         }
+      }
+
+      // 공격/피격 모션 타이머 감소
+      for (const u of updated) {
+        if (u.atkFlash && u.atkFlash > 0) u.atkFlash--;
+        if (u.hurtFlash && u.hurtFlash > 0) u.hurtFlash--;
       }
 
       // Remove dead + grant money
@@ -747,24 +759,50 @@ export default function BattleCatsPage() {
               <div className="absolute right-1 bottom-2 text-2xl">🏴</div>
 
               {/* Units */}
-              {units.map((u) => (
-                <div
-                  key={u.uid}
-                  className="absolute bottom-3 transition-all duration-100"
-                  style={{ left: `${u.x}%`, transform: `translateX(-50%) ${u.side === "enemy" ? "scaleX(-1)" : ""}` }}
-                >
-                  <div className="flex flex-col items-center">
-                    {/* HP bar */}
-                    <div className="mb-0.5 h-1 w-6 overflow-hidden rounded-full bg-slate-300 dark:bg-slate-600">
-                      <div
-                        className={`h-full rounded-full ${u.side === "cat" ? "bg-blue-500" : "bg-red-500"}`}
-                        style={{ width: `${(u.hp / u.maxHp) * 100}%` }}
-                      />
+              {units.map((u) => {
+                const attacking = (u.atkFlash ?? 0) > 0;
+                const hurt = (u.hurtFlash ?? 0) > 0;
+                const dir = u.side === "cat" ? 1 : -1;
+                // 각자 공격 모션: 근접은 앞으로 돌진+💥, 원거리는 제자리+빔/화살
+                const ranged = u.range >= 8;
+                const lunge = attacking && !ranged ? dir * 6 : 0; // 근접 돌진
+                const hitFx = u.range >= 12 ? "🔆" : u.range >= 8 ? "✨" : u.range >= 6 ? "💫" : "💥";
+                return (
+                  <div
+                    key={u.uid}
+                    className="absolute bottom-3 transition-all duration-100"
+                    style={{ left: `${u.x + lunge}%`, transform: `translateX(-50%) ${u.side === "enemy" ? "scaleX(-1)" : ""}` }}
+                  >
+                    <div className="relative flex flex-col items-center">
+                      {/* HP bar */}
+                      <div className="mb-0.5 h-1 w-6 overflow-hidden rounded-full bg-slate-300 dark:bg-slate-600">
+                        <div
+                          className={`h-full rounded-full ${u.side === "cat" ? "bg-blue-500" : "bg-red-500"}`}
+                          style={{ width: `${(u.hp / u.maxHp) * 100}%` }}
+                        />
+                      </div>
+                      <span
+                        className="text-lg leading-none drop-shadow transition-transform duration-75"
+                        style={{
+                          transform: attacking ? `rotate(${dir * -18}deg) scale(1.25)` : "none",
+                          filter: hurt ? "brightness(1.8) sepia(1) hue-rotate(-40deg) saturate(4)" : "none",
+                        }}
+                      >
+                        {u.emoji}
+                      </span>
+                      {/* 공격 이펙트 */}
+                      {attacking && (
+                        <span
+                          className="absolute text-sm animate-ping"
+                          style={{ left: ranged ? `${dir * 14}px` : `${dir * 10}px`, top: ranged ? "2px" : "6px" }}
+                        >
+                          {hitFx}
+                        </span>
+                      )}
                     </div>
-                    <span className="text-lg leading-none drop-shadow">{u.emoji}</span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Unit count */}
