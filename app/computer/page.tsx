@@ -143,6 +143,19 @@ const PARTS: Part[] = [
   { id: "kb8", name: "생각의 키보드", emoji: "🪄", category: "keyboard", tier: 8, power: 3500, price: 500, desc: "누르기 전에 이미 완성됨. 의지가 곧 입력." },
   { id: "ms8", name: "무념의 마우스", emoji: "✨", category: "mouse", tier: 8, power: 3500, price: 500, desc: "커서가 마음보다 먼저 도착한다. 지연 = 음수." },
   { id: "sp8", name: "천상의 사운드", emoji: "🎼", category: "speaker", tier: 8, power: 4000, price: 600, desc: "우주의 근원음을 재생. 듣는 순간 깨달음을 얻음." },
+  // 👑 신(GOD) 등급 (tier 9) - 초월마저 넘어선 유일신. 만물의 창조자
+  { id: "cpu9", name: "창조신의 연산핵", emoji: "👑", category: "cpu", tier: 9, power: 1000000, price: 4000, desc: "생각하는 순간 우주가 완성된다. 연산=창조." },
+  { id: "gpu9", name: "전지전능 GPU", emoji: "🌞", category: "gpu", tier: 9, power: 1500000, price: 5000, desc: "모든 것을 동시에 그린다. 상상=현실." },
+  { id: "ram9", name: "신의 기억", emoji: "🧿", category: "ram", tier: 9, power: 600000, price: 3500, desc: "태초부터 종말까지 전부 기억한다." },
+  { id: "st9", name: "창세의 서고", emoji: "📖", category: "storage", tier: 9, power: 550000, price: 3600, desc: "모든 가능성의 세계를 저장. 무한 = 유한." },
+  { id: "mb9", name: "천지창조 메인보드", emoji: "🌅", category: "mainboard", tier: 9, power: 700000, price: 4500, desc: "빛이 있으라 — 부팅과 함께 세계가 열린다." },
+  { id: "cs9", name: "신전 케이스", emoji: "⛩️", category: "case", tier: 9, power: 400000, price: 3000, desc: "신이 머무는 성소. 내부는 천국이다." },
+  { id: "pw9", name: "무한동력 신전지", emoji: "🔋", category: "power", tier: 9, power: 500000, price: 3800, desc: "스스로 존재하는 에너지. 시작도 끝도 없다." },
+  { id: "cl9", name: "영원냉각 성수", emoji: "💠", category: "cooler", tier: 9, power: 600000, price: 3600, desc: "신성한 냉기. 열은 신 앞에 무릎 꿇는다." },
+  { id: "mn9", name: "신의 눈 디스플레이", emoji: "👁️‍🗨️", category: "monitor", tier: 9, power: 550000, price: 5500, desc: "만물을 꿰뚫어 본다. 보는 것이 곧 진리." },
+  { id: "kb9", name: "말씀의 키보드", emoji: "📜", category: "keyboard", tier: 9, power: 450000, price: 3000, desc: "타이핑하면 그대로 이루어진다. 말=명령." },
+  { id: "ms9", name: "섭리의 마우스", emoji: "🕯️", category: "mouse", tier: 9, power: 450000, price: 3000, desc: "움직임이 곧 운명. 클릭 한 번에 세계가 바뀐다." },
+  { id: "sp9", name: "천상의 오케스트라", emoji: "🎺", category: "speaker", tier: 9, power: 500000, price: 3500, desc: "천사들의 합창. 신의 목소리를 재생한다." },
 ];
 
 /* ───── 게임 등급 (현실적 FPS 기반) ───── */
@@ -181,6 +194,8 @@ const GAMES: GameDef[] = [
   { name: "메타버스 풀다이브 VR", emoji: "🕶️", required: 400, optimal: 650, ultra: 950, cpuWeight: 0.4, gpuWeight: 0.6, ramMin: 6, storageHelp: true, resolution: "16K VR", desc: "양안 16K, 인간 시각 한계 초월" },
   { name: "실시간 우주 시뮬레이션", emoji: "🌌", required: 600, optimal: 1000, ultra: 1500, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 7, storageHelp: true, resolution: "∞K", desc: "은하 1000억개 실시간 물리 연산" },
   { name: "⚠️ E̷R̷R̷O̷R̷ 게임 ⚠️", emoji: "👾", required: 1000, optimal: 1800, ultra: 2800, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 7, storageHelp: true, resolution: "현실붕괴", desc: "존재하면 안 되는 게임. 오류 PC만 실행 가능." },
+  // ✨ 초월 게임 (신 등급 부품이라야 실행 가능 — 요구 성능 100만)
+  { name: "✨ 초월 게임 ✨", emoji: "🌟", required: 1000000, optimal: 1500000, ultra: 2000000, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 9, storageHelp: true, resolution: "신의영역", desc: "요구 성능 1,000,000. 오직 신(GOD) 등급 PC만이 실행할 수 있다." },
 ];
 
 /* ───── 현실적 성능 계산 ───── */
@@ -247,7 +262,7 @@ function calcDetailedScore(equippedMap: Map<string, Part>) {
     else fps = 144 + Math.floor((finalScore - g.ultra) / g.ultra * 60);
 
     // 모니터 주사율 제한
-    const maxFps = monitor ? [60, 165, 165, 144, 144][monitor.tier - 1] || 60 : 60;
+    const maxFps = monitor ? [60, 165, 165, 144, 144, 240, 1000, 9999, 999999][monitor.tier - 1] || 60 : 60;
     const displayFps = Math.min(fps, maxFps);
     const monitorLimited = fps > maxFps;
 
@@ -641,11 +656,11 @@ export default function ComputerPage() {
   }, [playCutscene]);
 
   const tierColor = (tier: number) => {
-    const colors = ["", "#aaa", "#4dabf7", "#ae3ec9", "#f59f00", "#e03131", "#ff00ff", "#00ffa3", "#ffffff"];
+    const colors = ["", "#aaa", "#4dabf7", "#ae3ec9", "#f59f00", "#e03131", "#ff00ff", "#00ffa3", "#ffffff", "#ffd700"];
     return colors[tier] || "#aaa";
   };
   const tierName = (tier: number) => {
-    const names = ["", "입문", "가성비", "고급", "하이엔드", "플래그십", "⭐비밀⭐", "⚠️오류⚠️", "✨???초월✨"];
+    const names = ["", "입문", "가성비", "고급", "하이엔드", "플래그십", "⭐비밀⭐", "⚠️오류⚠️", "✨???초월✨", "👑신👑"];
     return names[tier] || "";
   };
 
@@ -911,6 +926,7 @@ export default function ComputerPage() {
     const smoothCount = gameResults.filter(r => r.fps >= 60).length;
 
     const grade =
+      totalScore >= 1000000 ? { name: "👑신👑", color: "#ffd700", desc: "신이 강림했다. 이 PC로 못 하는 것은 존재하지 않는다. 창조주의 기계!" } :
       totalScore >= 8000 ? { name: "✨???초월✨", color: "#ffffff", desc: "개념을 초월했다... 이것은 더 이상 PC가 아니다. 신의 영역!" } :
       totalScore >= 1500 ? { name: "⚠️오류⚠️", color: "#00ffa3", desc: "E̷R̷R̷O̷R̷: 성능 측정 불가... 현실을 붕괴시키는 PC!" } :
       totalScore >= 400 ? { name: "⭐비밀⭐", color: "#ff00ff", desc: "인간의 기술을 초월한 전설의 PC!" } :
