@@ -62,11 +62,13 @@ export default function MotionFighter() {
 
   const g = useRef({
     p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
-    shake: 0, combo: 0, comboT: 0,
+    shake: 0, combo: 0, comboT: 0, pHit: false,
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
   });
   const [combo, setCombo] = useState(0);
+  const [airborne, setAirborne] = useState(false);
+  const airborneRef = useRef(false);
   const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false });
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -81,8 +83,10 @@ export default function MotionFighter() {
   const doAttack = useCallback((kind: Kind) => {
     const S = g.current;
     if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.atk.active) return;
-    const a = S.p.atk;
     const air = S.p.yOff < -6;
+    if (kind === "slam" && !air) { setMsg("⬇️내려찍기는 ⬆️점프 중에만 써요!"); return; } // 점프 전용
+    const a = S.p.atk;
+    S.pHit = false; // 이번 공격 명중 여부
     a.active = true; a.t = 0; a.hitDone = false; a.kind = kind; a.air = air;
     if (legKind(kind)) a.aim = S.p.legAim;
     else if (kind === "slam") a.aim = air ? 1.2 : 0.85; // 내려찍기: 아래로 (점프 중이면 더 급하게)
@@ -137,6 +141,8 @@ export default function MotionFighter() {
           }
         };
         jumpUpdate(p); jumpUpdate(c);
+        const airNow = p.yOff < -6;
+        if (airNow !== airborneRef.current) { airborneRef.current = airNow; setAirborne(airNow); }
 
         // 공격 진행 + 히트 → 끝나면 턴 넘김
         const advance = (f: Fighter, dir: number, target: Fighter, isPlayer: boolean): boolean => {
@@ -157,21 +163,22 @@ export default function MotionFighter() {
               target.x = Math.max(40, Math.min(320, target.x + (isPlayer ? 1 : -1) * (res === "head" ? 14 : 7))); // 넉백
               if (res === "head") sCrit(); else sHit();
               setMsg(`${a.air ? "점프 " : ""}${isPlayer ? "적" : "나"}에게 ${dmg}!${res === "head" ? " 크리티컬! 💥" : ""}`);
-              // 💥 도파민 연출: 화면 흔들림 + 파편 + 큰 데미지 + 콤보
+              // 콤보 갱신
+              if (isPlayer) { S.pHit = true; S.combo++; S.comboT = 2.0; setCombo(S.combo); }
+              else { S.combo = 0; setCombo(0); }
+              // 💥 도파민 연출 (콤보 쌓일수록 배로 커짐!)
+              const cm = 1 + Math.min(S.combo, 15) * 0.5;
               const tx = target.x, ty = HEAD_Y + target.yOff + (res === "body" ? 28 : 0);
               const big = res === "head" || a.air || KIND[a.kind].dmg >= 18;
-              S.shake = Math.min(18, S.shake + (big ? 13 : 6));
+              S.shake = Math.min(36, S.shake + (big ? 13 : 6) * cm);
               const pc = res === "head" ? "#fde047" : big ? "#fb7185" : "#93c5fd";
-              for (let i = 0; i < (big ? 18 : 9); i++) {
-                const ang = Math.random() * Math.PI * 2, sp = 50 + Math.random() * (big ? 180 : 90);
-                S.parts.push({ x: tx, y: ty, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 0.5 + Math.random() * 0.45, c: pc });
+              const cnt = Math.min(70, Math.floor((big ? 18 : 9) * cm));
+              for (let i = 0; i < cnt; i++) {
+                const ang = Math.random() * Math.PI * 2, sp = (50 + Math.random() * (big ? 180 : 90)) * Math.min(2.2, cm);
+                S.parts.push({ x: tx, y: ty, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 0.5 + Math.random() * 0.5, c: i % 5 === 0 ? "#fff" : pc });
               }
-              S.pops.push({ x: tx, y: ty - 18, txt: `${res === "head" ? "★" : ""}${dmg}`, life: 0.85, big });
-              if (isPlayer) {
-                S.combo++; S.comboT = 1.8;
-                if (S.combo >= 2) S.pops.push({ x: W / 2, y: 46, txt: `${S.combo} COMBO!! 🔥`, life: 1.1, big: true });
-                setCombo(S.combo);
-              } else { S.combo = 0; setCombo(0); }
+              S.pops.push({ x: tx, y: ty - 18, txt: `${res === "head" ? "★" : ""}${dmg}`, life: 0.9, big: big || S.combo >= 3 });
+              if (isPlayer && S.combo >= 2) S.pops.push({ x: W / 2, y: 46, txt: `${S.combo} COMBO!! 🔥${S.combo >= 5 ? "🔥🔥" : ""}`, life: 1.15, big: true });
             }
           }
           if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) { setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); if (isPlayer && S.combo !== 0) { S.combo = 0; setCombo(0); } } return true; }
@@ -183,8 +190,11 @@ export default function MotionFighter() {
         if (p.hurtT > 0) p.hurtT -= dt;
         if (c.hurtT > 0) c.hurtT -= dt;
 
-        // 턴 전환
-        if (pDone && S.turn === "p" && !S.over && c.hp > 0) { S.turn = "c"; S.cpuTimer = 0.8; sTurn(); }
+        // 턴 전환 — 맞히면 콤보로 계속 공격! (최대 6연타)
+        if (pDone && S.turn === "p" && !S.over && c.hp > 0) {
+          if (S.pHit && S.combo < 6) { setMsg(`${S.combo} 콤보! 계속 공격! 🔥`); }
+          else { S.turn = "c"; S.cpuTimer = 0.8; sTurn(); }
+        }
         if (cDone && S.turn === "c" && !S.over && p.hp > 0) { S.turn = "p"; sTurn(); setMsg("내 차례! 조준하고 공격!"); }
 
         // CPU 차례: 잠깐 생각 후 조준+공격
@@ -296,6 +306,11 @@ export default function MotionFighter() {
     else { const len = 14 + 60 * 0.12; fist = { x: x + dir * len * Math.cos(f.aim), y: shY + len * Math.sin(f.aim) }; }
     ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(fist.x, fist.y); ctx.stroke();
     ctx.beginPath(); ctx.arc(fist.x, fist.y, 6, 0, 7); ctx.fill();
+    // 내려찍기 = 두 손 모아 내리찍기
+    if (f.atk.active && f.atk.kind === "slam") {
+      ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(fist.x + dir * 5, fist.y - 3); ctx.stroke();
+      ctx.beginPath(); ctx.arc(fist.x + dir * 5, fist.y - 3, 6, 0, 7); ctx.fill();
+    }
 
     // 머리
     ctx.beginPath(); ctx.arc(x, hdY, HEAD_R, 0, 7); ctx.fill();
@@ -399,7 +414,7 @@ export default function MotionFighter() {
         </div>
         <div className="mt-1.5 grid grid-cols-3 gap-1.5">
           <button onClick={() => doAttack("smash")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-red-600 active:bg-red-500" : "bg-slate-800 text-slate-500"}`}>💥 스매쉬</button>
-          <button onClick={() => doAttack("slam")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-rose-700 active:bg-rose-600" : "bg-slate-800 text-slate-500"}`}>⬇️ 내려찍기</button>
+          <button onClick={() => doAttack("slam")} disabled={!myTurn || !airborne} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn && airborne ? "bg-rose-600 active:bg-rose-500 animate-pulse" : "bg-slate-800 text-slate-500"}`}>⬇️ 내려찍기{airborne ? "!" : "🔒"}</button>
           <button onClick={() => doAttack("spin")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-fuchsia-700 active:bg-fuchsia-600" : "bg-slate-800 text-slate-500"}`}>🌀 돌려차기</button>
         </div>
         <p className="text-center text-[11px] text-gray-300 mt-2"><b>스킬</b>: 👊펀치 🦵킥 💥스매쉬(강) ⬇️내려찍기(공중강) 🌀돌려차기 · <b>머리=크리티컬</b> · <b>점프 콤보 1.5배!</b> 각도 무제한(360°)</p>
