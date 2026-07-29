@@ -318,7 +318,25 @@ interface Cutscene {
 
 type Screen = "main" | "shop" | "build" | "test" | "play";
 
-/* ───── 실제 플레이 미니게임 (떨어지는 아이템 받기 — FPS만큼 부드럽게/렉걸리게) ───── */
+/* ───── 게임별 미니게임 모드 매핑 ───── */
+type PlayMode = "aim" | "mine" | "dodge" | "catch";
+function gameMode(name: string): PlayMode {
+  const aim = ["발로란트", "포트나이트", "오버워치", "사이버펑크", "호그와트", "블랙 미스", "E̷R̷R̷O̷R̷", "리그 오브 레전드", "초월 게임", "전지전능", "신들의 전쟁"];
+  const mine = ["마인크래프트", "로블록스"];
+  const dodge = ["GTA", "엘든 링", "스타필드", "VR", "우주", "메타버스", "무한 차원", "8K"];
+  if (aim.some(k => name.includes(k))) return "aim";
+  if (mine.some(k => name.includes(k))) return "mine";
+  if (dodge.some(k => name.includes(k))) return "dodge";
+  return "catch"; // 웹서핑/유튜브 등
+}
+const MODE_INFO: Record<PlayMode, { title: string; how: string; ok: string; bad: string; player: string }> = {
+  aim: { title: "🎯 타겟 사격", how: "나타나는 적을 빠르게 클릭/터치해서 맞춰라!", ok: "명중", bad: "놓침", player: "🎯" },
+  mine: { title: "⛏️ 블록 부수기", how: "떨어지는 블록을 클릭해서 부숴라!", ok: "부숨", bad: "놓침", player: "⛏️" },
+  dodge: { title: "🏎️ 장애물 피하기", how: "좌우로 움직여 장애물을 피해라!", ok: "회피", bad: "충돌", player: "🚀" },
+  catch: { title: "🧺 받기", how: "바구니를 움직여 떨어지는 걸 받아라!", ok: "받음", bad: "놓침", player: "🧺" },
+};
+
+/* ───── 실제 플레이 미니게임 (장르별 · FPS만큼 부드럽게/렉걸리게) ───── */
 function PlayGame({ gameName, emoji, fps, onExit }: { gameName: string; emoji: string; fps: number; onExit: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [score, setScore] = useState(0);
@@ -326,9 +344,12 @@ function PlayGame({ gameName, emoji, fps, onExit }: { gameName: string; emoji: s
   const [timeLeft, setTimeLeft] = useState(20);
   const [over, setOver] = useState(false);
   const [round, setRound] = useState(0);
+  const mode = gameMode(gameName);
+  const info = MODE_INFO[mode];
   const stateRef = useRef({
-    paddleX: 150, targetX: 150,
-    items: [] as { x: number; y: number; vy: number; kind: number }[],
+    playerX: 170, targetX: 170,
+    items: [] as { x: number; y: number; vy: number; r: number; life: number; kind: number; dead?: boolean }[],
+    clicks: [] as { x: number; y: number }[],
     spawnAcc: 0, score: 0, missed: 0,
   });
   // 실제 프레임레이트 = 테스트로 나온 FPS (렉 체감!). 최소 4, 최대 60으로 제한.
@@ -339,19 +360,28 @@ function PlayGame({ gameName, emoji, fps, onExit }: { gameName: string; emoji: s
     if (!canvas) return;
     const W = canvas.width, H = canvas.height;
     const st = stateRef.current;
-    st.paddleX = W / 2; st.targetX = W / 2; st.items = []; st.spawnAcc = 0; st.score = 0; st.missed = 0;
+    st.playerX = W / 2; st.targetX = W / 2; st.items = []; st.clicks = []; st.spawnAcc = 0; st.score = 0; st.missed = 0;
     let raf = 0, last = -1, startT = -1, finished = false;
     const frameMs = 1000 / playFps;
-    const ITEMS = [emoji, "🪙", "💎", "⭐", "🎮"];
+    const AIM_ENEMIES = ["👾", "👹", "🤖", "💀", "🛸", emoji];
+    const BLOCKS = ["🧱", "🟫", "🟩", "💎", "🪨"];
+    const OBSTACLES = ["🪨", "🚧", "💥", "☄️", "⚠️"];
+    const CATCHES = [emoji, "🪙", "💎", "⭐", "🎮"];
 
-    const move = (clientX: number) => {
+    const toCanvas = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
-      st.targetX = ((clientX - rect.left) / rect.width) * W;
+      return { x: ((clientX - rect.left) / rect.width) * W, y: ((clientY - rect.top) / rect.height) * H };
     };
-    const onMouse = (e: MouseEvent) => move(e.clientX);
-    const onTouch = (e: TouchEvent) => { if (e.touches[0]) move(e.touches[0].clientX); };
-    canvas.addEventListener("mousemove", onMouse);
-    canvas.addEventListener("touchmove", onTouch, { passive: true });
+    const onMove = (clientX: number) => { st.targetX = toCanvas(clientX, 0).x; };
+    const onMouseMove = (e: MouseEvent) => onMove(e.clientX);
+    const onTouchMove = (e: TouchEvent) => { if (e.touches[0]) onMove(e.touches[0].clientX); };
+    const onDown = (clientX: number, clientY: number) => { const p = toCanvas(clientX, clientY); st.clicks.push(p); st.targetX = p.x; };
+    const onMouseDown = (e: MouseEvent) => onDown(e.clientX, e.clientY);
+    const onTouchStart = (e: TouchEvent) => { if (e.touches[0]) onDown(e.touches[0].clientX, e.touches[0].clientY); };
+    canvas.addEventListener("mousemove", onMouseMove);
+    canvas.addEventListener("touchmove", onTouchMove, { passive: true });
+    canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("touchstart", onTouchStart, { passive: true });
 
     const loop = (t: number) => {
       raf = requestAnimationFrame(loop);
@@ -359,69 +389,101 @@ function PlayGame({ gameName, emoji, fps, onExit }: { gameName: string; emoji: s
       if (last >= 0 && t - last < frameMs) return; // FPS 게이트: 낮으면 뚝뚝 끊김
       last = t;
 
-      // 시간
       const elapsed = (t - startT) / 1000;
       const remain = Math.max(0, 20 - elapsed);
       setTimeLeft(Math.ceil(remain));
       if (remain <= 0 && !finished) { finished = true; setOver(true); cancelAnimationFrame(raf); return; }
 
-      // 패들 따라가기 (프레임마다만 갱신 → 낮은 fps면 조작도 렉)
-      st.paddleX += (st.targetX - st.paddleX) * 0.4;
-
-      // 스폰
+      st.playerX += (st.targetX - st.playerX) * 0.4;
       st.spawnAcc += 1;
-      const spawnEvery = Math.max(6, Math.floor(playFps * 0.5));
-      if (st.spawnAcc >= spawnEvery) {
-        st.spawnAcc = 0;
-        st.items.push({ x: 20 + Math.random() * (W - 40), y: -20, vy: 3 + Math.random() * 3, kind: Math.floor(Math.random() * ITEMS.length) });
-      }
-
-      // 아이템 이동 (프레임당 고정 이동 → 낮은 fps면 뚝뚝 순간이동)
-      const paddleY = H - 30, pw = 46;
-      for (const it of st.items) {
-        it.y += it.vy * 2;
-        if (it.y >= paddleY - 6 && it.y <= paddleY + 20 && Math.abs(it.x - st.paddleX) < pw) {
-          it.y = H + 999; st.score += 1; setScore(st.score);
-        } else if (it.y > H + 10 && it.y < H + 900) {
-          it.y = H + 999; st.missed += 1; setMissed(st.missed);
-        }
-      }
-      st.items = st.items.filter(it => it.y < H + 50);
-
-      // 렌더
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      ctx.fillStyle = "#0b1120"; ctx.fillRect(0, 0, W, H);
-      ctx.font = "26px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      for (const it of st.items) if (it.y < H + 40) ctx.fillText(ITEMS[it.kind], it.x, it.y);
-      // 바구니
-      ctx.font = "34px serif"; ctx.fillText("🧺", st.paddleX, paddleY + 4);
+      ctx.fillStyle = mode === "aim" ? "#111827" : mode === "mine" ? "#1a1508" : mode === "dodge" ? "#0a0f1e" : "#0b1120";
+      ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+      if (mode === "aim") {
+        // 타겟 사격: 팝업 타겟, 클릭으로 명중, 시간 지나면 놓침
+        const spawnEvery = Math.max(7, Math.floor(playFps * 0.6));
+        if (st.spawnAcc >= spawnEvery) { st.spawnAcc = 0; st.items.push({ x: 30 + Math.random() * (W - 60), y: 40 + Math.random() * (H - 120), vy: 0, r: 26, life: Math.max(12, playFps * 1.2), kind: Math.floor(Math.random() * AIM_ENEMIES.length) }); }
+        for (const c of st.clicks) for (const it of st.items) if (!it.dead && Math.hypot(it.x - c.x, it.y - c.y) < it.r + 6) { it.dead = true; st.score += 1; setScore(st.score); break; }
+        st.clicks = [];
+        for (const it of st.items) { it.life -= 1; if (it.life <= 0 && !it.dead) { it.dead = true; st.missed += 1; setMissed(st.missed); } }
+        st.items = st.items.filter(it => !it.dead && it.life > 0);
+        ctx.font = "30px serif";
+        for (const it of st.items) { const a = Math.min(1, it.life / 10); ctx.globalAlpha = a < 1 ? a : 1; ctx.fillText(AIM_ENEMIES[it.kind], it.x, it.y); ctx.globalAlpha = 1; }
+      } else if (mode === "mine") {
+        // 블록 부수기: 떨어지는 블록 클릭해서 깸, 바닥 닿으면 놓침
+        const spawnEvery = Math.max(8, Math.floor(playFps * 0.6));
+        if (st.spawnAcc >= spawnEvery) { st.spawnAcc = 0; st.items.push({ x: 30 + Math.random() * (W - 60), y: -20, vy: 2 + Math.random() * 2, r: 22, life: 1, kind: Math.floor(Math.random() * BLOCKS.length) }); }
+        for (const c of st.clicks) for (const it of st.items) if (!it.dead && Math.abs(it.x - c.x) < 26 && Math.abs(it.y - c.y) < 26) { it.dead = true; st.score += 1; setScore(st.score); break; }
+        st.clicks = [];
+        for (const it of st.items) { it.y += it.vy * 2.2; if (it.y > H - 10 && !it.dead) { it.dead = true; st.missed += 1; setMissed(st.missed); } }
+        st.items = st.items.filter(it => !it.dead && it.y < H + 20);
+        ctx.font = "34px serif";
+        for (const it of st.items) ctx.fillText(BLOCKS[it.kind], it.x, it.y);
+        ctx.fillStyle = "#3a2f18"; ctx.fillRect(0, H - 6, W, 6);
+      } else if (mode === "dodge") {
+        // 장애물 피하기: 플레이어 좌우 이동, 부딪히면 충돌, 지나가면 회피
+        const spawnEvery = Math.max(7, Math.floor(playFps * 0.55));
+        if (st.spawnAcc >= spawnEvery) { st.spawnAcc = 0; st.items.push({ x: 30 + Math.random() * (W - 60), y: -20, vy: 3 + Math.random() * 3, r: 22, life: 1, kind: Math.floor(Math.random() * OBSTACLES.length) }); }
+        const py = H - 36, pw = 24;
+        for (const it of st.items) {
+          it.y += it.vy * 2.4;
+          if (!it.dead && it.y >= py - 22 && it.y <= py + 22 && Math.abs(it.x - st.playerX) < pw) { it.dead = true; st.missed += 1; setMissed(st.missed); }
+          else if (!it.dead && it.y > H + 10) { it.dead = true; st.score += 1; setScore(st.score); }
+        }
+        st.items = st.items.filter(it => !it.dead && it.y < H + 20);
+        ctx.font = "30px serif";
+        for (const it of st.items) ctx.fillText(OBSTACLES[it.kind], it.x, it.y);
+        ctx.font = "34px serif"; ctx.fillText(info.player, st.playerX, py);
+      } else {
+        // 받기 (catch)
+        const spawnEvery = Math.max(6, Math.floor(playFps * 0.5));
+        if (st.spawnAcc >= spawnEvery) { st.spawnAcc = 0; st.items.push({ x: 20 + Math.random() * (W - 40), y: -20, vy: 3 + Math.random() * 3, r: 20, life: 1, kind: Math.floor(Math.random() * CATCHES.length) }); }
+        const py = H - 30, pw = 46;
+        for (const it of st.items) {
+          it.y += it.vy * 2;
+          if (!it.dead && it.y >= py - 6 && it.y <= py + 20 && Math.abs(it.x - st.playerX) < pw) { it.dead = true; st.score += 1; setScore(st.score); }
+          else if (!it.dead && it.y > H + 10) { it.dead = true; st.missed += 1; setMissed(st.missed); }
+        }
+        st.items = st.items.filter(it => !it.dead && it.y < H + 40);
+        ctx.font = "26px serif";
+        for (const it of st.items) ctx.fillText(CATCHES[it.kind], it.x, it.y);
+        ctx.font = "34px serif"; ctx.fillText("🧺", st.playerX, py + 4);
+      }
     };
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); canvas.removeEventListener("mousemove", onMouse); canvas.removeEventListener("touchmove", onTouch); };
-  }, [playFps, emoji, round]);
+    return () => {
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("mousemove", onMouseMove); canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("mousedown", onMouseDown); canvas.removeEventListener("touchstart", onTouchStart);
+    };
+  }, [playFps, emoji, round, mode, info.player]);
 
   const laggy = playFps < 20;
+  const clickBased = mode === "aim" || mode === "mine";
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 to-black text-white p-4">
       <div className="max-w-md mx-auto">
         <div className="flex items-center justify-between mb-2">
           <button onClick={onExit} className="text-green-300 text-sm">← 그만하기</button>
-          <h2 className="text-lg font-black truncate px-2">{emoji} {gameName}</h2>
+          <h2 className="text-base font-black truncate px-2">{emoji} {gameName}</h2>
           <span className="text-xs text-gray-400">{playFps}fps</span>
         </div>
+        <div className="text-center text-xs font-bold text-emerald-300 mb-1">{info.title}</div>
         <div className="flex justify-between text-sm font-bold mb-2 px-1">
-          <span className="text-yellow-300">🪙 받음 {score}</span>
-          <span className="text-red-300">놓침 {missed}</span>
+          <span className="text-yellow-300">✅ {info.ok} {score}</span>
+          <span className="text-red-300">❌ {info.bad} {missed}</span>
           <span className="text-cyan-300">⏱️ {timeLeft}초</span>
         </div>
         <div className="relative rounded-xl overflow-hidden border-2 border-green-500/40">
-          <canvas ref={canvasRef} width={340} height={440} className="w-full touch-none cursor-pointer bg-slate-900" />
+          <canvas ref={canvasRef} width={340} height={440} className="w-full touch-none cursor-crosshair bg-slate-900" />
           {over && (
             <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 text-center p-4">
               <div className="text-4xl">{score >= 20 ? "🏆" : score >= 10 ? "🎉" : "🙂"}</div>
               <div className="text-2xl font-black text-yellow-300">최종 점수 {score}점!</div>
-              <div className="text-sm text-gray-300">받음 {score} · 놓침 {missed}</div>
+              <div className="text-sm text-gray-300">{info.ok} {score} · {info.bad} {missed}</div>
               <div className="text-xs text-gray-400 mt-1">
                 {playFps >= 60 ? "부드럽게 잘 돌아갔죠? 최고 사양! 👑" :
                  playFps >= 30 ? "꽤 할 만했어요! 좋은 PC네요 👍" :
@@ -437,7 +499,7 @@ function PlayGame({ gameName, emoji, fps, onExit }: { gameName: string; emoji: s
           )}
         </div>
         <p className={`text-center text-xs mt-2 ${laggy ? "text-red-400" : "text-gray-400"}`}>
-          🧺 바구니를 움직여 떨어지는 걸 받으세요! {laggy ? "(FPS가 낮아 렉이 걸려요 — 이게 실제 게임 느낌!)" : "(마우스/손가락으로 조작)"}
+          {info.how} {laggy ? "(FPS가 낮아 렉이 걸려요 — 이게 실제 게임 느낌!)" : clickBased ? "(클릭/터치)" : "(마우스/손가락으로 조작)"}
         </p>
       </div>
     </div>
