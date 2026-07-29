@@ -87,6 +87,14 @@ const ENEMY_TYPES: EnemyType[] = [
   { id: "dragon", name: "드래곤", emoji: "🐉", hp: 1200, atk: 120, range: 8, speed: 0.4, atkSpeed: 22, money: 100 },
   { id: "boss_king", name: "킹", emoji: "👹", hp: 2500, atk: 180, range: 6, speed: 0.3, atkSpeed: 25, money: 200 },
   { id: "boss_god", name: "신", emoji: "⚡", hp: 5000, atk: 300, range: 8, speed: 0.2, atkSpeed: 30, money: 500 },
+  // 🌌 우주편 적
+  { id: "meteor", name: "운석", emoji: "☄️", hp: 900, atk: 90, range: 4, speed: 0.9, atkSpeed: 14, money: 80 },
+  { id: "alien", name: "외계인", emoji: "👽", hp: 700, atk: 110, range: 11, speed: 0.6, atkSpeed: 16, money: 90 },
+  { id: "ufo", name: "UFO", emoji: "🛸", hp: 1400, atk: 130, range: 12, speed: 0.5, atkSpeed: 18, money: 130 },
+  { id: "astro", name: "우주괴수", emoji: "👾", hp: 2200, atk: 160, range: 6, speed: 0.4, atkSpeed: 20, money: 180 },
+  { id: "blackhole", name: "블랙홀", emoji: "🕳️", hp: 4000, atk: 220, range: 9, speed: 0.3, atkSpeed: 24, money: 300 },
+  { id: "cosmic_boss", name: "은하황제", emoji: "🌟", hp: 9000, atk: 400, range: 10, speed: 0.25, atkSpeed: 30, money: 700 },
+  { id: "universe_god", name: "우주신", emoji: "🌌", hp: 20000, atk: 600, range: 12, speed: 0.2, atkSpeed: 34, money: 1500 },
 ];
 
 const STAGES: Stage[] = [
@@ -142,6 +150,57 @@ const STAGES: Stage[] = [
     { enemyId: "dragon", delay: 20, count: 8 },
     { enemyId: "boss_king", delay: 60, count: 3 },
     { enemyId: "boss_god", delay: 150, count: 1 },
+  ]},
+  // 🌌 우주편 1장
+  { id: 11, name: "달", emoji: "🌙", baseHp: 8000, reward: 800, waves: [
+    { enemyId: "meteor", delay: 12, count: 8 },
+    { enemyId: "alien", delay: 40, count: 4 },
+    { enemyId: "astro", delay: 120, count: 1 },
+  ]},
+  { id: 12, name: "화성", emoji: "🔴", baseHp: 10000, reward: 900, waves: [
+    { enemyId: "meteor", delay: 8, count: 12 },
+    { enemyId: "alien", delay: 30, count: 6 },
+    { enemyId: "ufo", delay: 90, count: 2 },
+  ]},
+  { id: 13, name: "목성", emoji: "🟠", baseHp: 12000, reward: 1000, waves: [
+    { enemyId: "alien", delay: 10, count: 8 },
+    { enemyId: "ufo", delay: 40, count: 3 },
+    { enemyId: "astro", delay: 80, count: 3 },
+    { enemyId: "cosmic_boss", delay: 180, count: 1 },
+  ]},
+  // 🌌 우주편 2장
+  { id: 14, name: "토성 고리", emoji: "🪐", baseHp: 15000, reward: 1200, waves: [
+    { enemyId: "ufo", delay: 10, count: 6 },
+    { enemyId: "astro", delay: 40, count: 4 },
+    { enemyId: "blackhole", delay: 120, count: 1 },
+  ]},
+  { id: 15, name: "혜성 지대", emoji: "☄️", baseHp: 18000, reward: 1400, waves: [
+    { enemyId: "meteor", delay: 5, count: 20 },
+    { enemyId: "ufo", delay: 30, count: 5 },
+    { enemyId: "cosmic_boss", delay: 150, count: 1 },
+  ]},
+  { id: 16, name: "성운", emoji: "🌫️", baseHp: 22000, reward: 1600, waves: [
+    { enemyId: "alien", delay: 8, count: 12 },
+    { enemyId: "astro", delay: 30, count: 6 },
+    { enemyId: "blackhole", delay: 80, count: 2 },
+    { enemyId: "cosmic_boss", delay: 200, count: 1 },
+  ]},
+  // 🌌 우주편 3장
+  { id: 17, name: "블랙홀", emoji: "🕳️", baseHp: 28000, reward: 2000, waves: [
+    { enemyId: "blackhole", delay: 20, count: 4 },
+    { enemyId: "astro", delay: 15, count: 10 },
+    { enemyId: "cosmic_boss", delay: 150, count: 2 },
+  ]},
+  { id: 18, name: "안드로메다", emoji: "🌠", baseHp: 35000, reward: 2500, waves: [
+    { enemyId: "ufo", delay: 8, count: 12 },
+    { enemyId: "blackhole", delay: 40, count: 3 },
+    { enemyId: "cosmic_boss", delay: 100, count: 3 },
+  ]},
+  { id: 19, name: "우주의 끝", emoji: "✨", baseHp: 50000, reward: 4000, waves: [
+    { enemyId: "astro", delay: 6, count: 15 },
+    { enemyId: "blackhole", delay: 30, count: 5 },
+    { enemyId: "cosmic_boss", delay: 90, count: 3 },
+    { enemyId: "universe_god", delay: 220, count: 1 },
   ]},
 ];
 
@@ -243,6 +302,10 @@ const ATTACK_FX: Record<string, { fx: string; style: "punch" | "slash" | "stab" 
   bear: { fx: "💥", style: "smash" }, eagle: { fx: "🪶", style: "beam" }, rhino: { fx: "💨", style: "charge" },
   elephant: { fx: "💥", style: "smash" }, dragon: { fx: "🔥", style: "beam" },
   boss_king: { fx: "💥", style: "smash" }, boss_god: { fx: "⚡", style: "beam" },
+  // 우주편 적
+  meteor: { fx: "☄️", style: "charge" }, alien: { fx: "🔫", style: "beam" }, ufo: { fx: "🛸", style: "beam" },
+  astro: { fx: "💢", style: "smash" }, blackhole: { fx: "🌀", style: "beam" }, cosmic_boss: { fx: "🌟", style: "beam" },
+  universe_god: { fx: "💫", style: "smash" },
 };
 
 const SAVE_KEY = "battlecats_save";
