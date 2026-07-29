@@ -45,13 +45,13 @@ const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05
 // 🎭 오리지널 초강력 모드 (저작권 캐릭터 아님 — 우리만의 창작)
 const MODES = {
   azure: { name: "🔵 창천검성", color: "#38bdf8", aura: "#38bdf8", slash: "#7dd3fc",
-    cry: ["…호흡을 가다듬는다.", "이 일격에 모든 걸 건다!!", "천공─────섬!!!", "베였다. 움직이지 마라.", "승 리"] },
+    cry: ["…바람이, 멎었다.", "여기까지 잘 버텼다. 인정하지.", "허나─── 이제 끝을 낼 시간이다.", "천공─────섬!!!", "베는 건 한 번이면 충분하다.", "…잘 가라, 강적이여.", "승 리"] },
   crimson: { name: "🔴 마염패왕", color: "#f43f5e", aura: "#f97316", slash: "#fb7185",
-    cry: ["크크… 몸은 좀 풀렸나?", "잿더미로 만들어 주마!!", "업화─────참!!!", "소멸해라. 흔적도 없이.", "승 리"] },
+    cry: ["크크… 슬슬 지루해지는군.", "제법이야. 날 여기까지 오게 하다니.", "허나 불꽃 앞에선 전부 재가 된다.", "업화─────참!!!", "타올라라. 남김없이.", "…이것이 힘의 차이다.", "승 리"] },
 };
 type ModeKey = keyof typeof MODES;
-const DEFEAT_CRY = ["큭… 여기서 끝인가…", "적이 힘을 모은다…!", "참─────격!!!", "크윽…! 방심했다…", "패 배"];
-const DYING_LINES = ["크윽… 내가… 지다니…", "말도… 안 돼…", "이게… 실력 차이인가…", "다음엔… 반드시 이긴다…"];
+const DEFEAT_CRY = ["큭… 몸이 말을 안 들어…", "아직… 쓰러질 순 없어…", "적의 기세가… 심상치 않다…!", "참─────격!!!", "막을… 수가… 없어…", "여기서… 끝이란 말인가…", "패 배"];
+const DYING_LINES = ["크윽… 내가… 지다니…", "말도… 안 돼…", "이게… 실력 차이인가…", "다음엔… 반드시 이긴다…", "아직… 끝나지 않았어…", "훌륭한… 일격이었다…"];
 
 function limbTip(f: Fighter, dir: number, kind: Kind, ext: number) {
   const cfg = KIND[kind];
@@ -257,7 +257,7 @@ export default function MotionFighter() {
         // KO → 15초 액션 영화 시작
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          S.finish = 15; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          S.finish = 20; S.finishWin = c.hp <= 0; S.cineStage = -1;
           const loser = c.hp <= 0 ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
@@ -270,16 +270,17 @@ export default function MotionFighter() {
       // 🎬 15초 액션 영화 (대사 → 기 모으기 → 참격 → 여파 → 결과)
       if (S.finish > 0) {
         S.finish -= dt;
-        const elapsed = 15 - S.finish;
-        const stage = elapsed < 3.5 ? 0 : elapsed < 7 ? 1 : elapsed < 8.5 ? 2 : elapsed < 12 ? 3 : 4;
+        const elapsed = 20 - S.finish;
+        // 7단계 (참격=3): 0인트로 1도발 2기모으기 3참격 4여파 5마무리 6결과
+        const stage = elapsed < 3 ? 0 : elapsed < 6 ? 1 : elapsed < 9.5 ? 2 : elapsed < 11 ? 3 : elapsed < 14.5 ? 4 : elapsed < 17.5 ? 5 : 6;
         const md = MODES[modeRef.current];
         if (stage !== S.cineStage) {
           S.cineStage = stage;
           const win = S.finishWin;
           const LINES = win ? md.cry : DEFEAT_CRY;
-          setCine({ active: true, line: LINES[stage], loserLine: stage === 3 ? S.dyingLine : "", win, stage });
-          if (stage <= 1) beep(200, 0.22, "sawtooth", 0.09); // 외침
-          if (stage === 2) {
+          setCine({ active: true, line: LINES[stage], loserLine: stage === 4 ? S.dyingLine : "", win, stage });
+          if (stage <= 2) beep(200, 0.22, "sawtooth", 0.09); // 외침
+          if (stage === 3) {
             // ⚔️ 참격 발동! 대폭발
             const loser = win ? c : p;
             S.flash = 1.2; S.shake = 44; sKo();
@@ -290,13 +291,13 @@ export default function MotionFighter() {
             S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
           }
         }
-        // 기 모으기 오라
-        if (S.cineStage === 1) {
+        // 기 모으기 오라 (기 모으는 단계)
+        if (S.cineStage === 1 || S.cineStage === 2) {
           const win = S.finishWin, hero = win ? p : c;
           if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: win ? md.aura : "#fb7185" }); }
         }
         // 💀 패자 쓰러지는 연출 (참격 이후 서서히 넘어짐)
-        if (S.cineStage >= 2) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 0.55); }
+        if (S.cineStage >= 3) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 0.5); }
         if (S.finish <= 0) {
           const pWin = S.finishWin;
           setCine({ active: false, line: "", loserLine: "", win: pWin, stage: -1 });
@@ -513,10 +514,10 @@ export default function MotionFighter() {
               <div className="pointer-events-none absolute inset-x-0 top-0 h-9 bg-black" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-black" />
               <div className="pointer-events-none absolute top-10 left-2 text-[10px] font-black text-red-500 animate-pulse">🎬 ACTION</div>
-              {cine.stage === 4 && (
+              {cine.stage === 6 && (
                 <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-6xl font-black drop-shadow-[0_3px_6px_rgba(0,0,0,0.9)] ${cine.win ? "text-yellow-300" : "text-rose-400"}`}>{cine.line}</div>
               )}
-              {cine.line && cine.stage !== 4 && (
+              {cine.line && cine.stage !== 6 && (
                 <div className="absolute bottom-11 left-1/2 -translate-x-1/2 w-[92%] text-center">
                   {cine.loserLine && (
                     <div className="mb-1 text-sm italic text-gray-400 drop-shadow">💀 「{cine.loserLine}」</div>
