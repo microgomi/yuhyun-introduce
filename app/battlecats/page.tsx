@@ -227,6 +227,24 @@ function evoDisplay(id: string, baseEmoji: string, baseName: string, level: numb
 }
 const evoMulFor = (level: number) => { const s = evoStageFor(level); return s === 2 ? 1.5 : s === 1 ? 1.2 : 1; };
 
+// ⚔️ 각 유닛별 고유 공격 모션 (fx 이모지 + 동작 스타일)
+const ATTACK_FX: Record<string, { fx: string; style: "punch" | "slash" | "stab" | "beam" | "throw" | "smash" | "charge" | "bash" }> = {
+  basic: { fx: "👊", style: "punch" }, tank: { fx: "🛡️", style: "bash" }, axe: { fx: "⚔️", style: "slash" },
+  gross: { fx: "💢", style: "punch" }, cow: { fx: "💨", style: "charge" }, fish: { fx: "🐟", style: "throw" },
+  lizard: { fx: "🔥", style: "beam" }, titan: { fx: "💥", style: "smash" }, ninja: { fx: "🌀", style: "slash" },
+  witch: { fx: "🔮", style: "beam" },
+  g_warrior: { fx: "⚔️", style: "slash" }, g_archer: { fx: "🏹", style: "beam" }, g_pirate: { fx: "💥", style: "slash" },
+  g_chef: { fx: "🍳", style: "smash" }, g_surfer: { fx: "🌊", style: "charge" }, g_robot: { fx: "⚡", style: "beam" },
+  g_angel: { fx: "✨", style: "beam" }, g_vampire: { fx: "🦇", style: "slash" }, g_dragon_cat: { fx: "🔥", style: "beam" },
+  g_god_cat: { fx: "⚡", style: "beam" }, g_dark: { fx: "🌑", style: "beam" }, g_ice: { fx: "❄️", style: "beam" },
+  g_ultimate: { fx: "🌟", style: "smash" }, g_galaxy: { fx: "💫", style: "beam" },
+  // 적
+  mouse: { fx: "🦷", style: "punch" }, dog: { fx: "🐾", style: "punch" }, pig: { fx: "💢", style: "punch" },
+  bear: { fx: "💥", style: "smash" }, eagle: { fx: "🪶", style: "beam" }, rhino: { fx: "💨", style: "charge" },
+  elephant: { fx: "💥", style: "smash" }, dragon: { fx: "🔥", style: "beam" },
+  boss_king: { fx: "💥", style: "smash" }, boss_god: { fx: "⚡", style: "beam" },
+};
+
 const SAVE_KEY = "battlecats_save";
 
 export default function BattleCatsPage() {
@@ -837,10 +855,22 @@ export default function BattleCatsPage() {
                 const attacking = (u.atkFlash ?? 0) > 0;
                 const hurt = (u.hurtFlash ?? 0) > 0;
                 const dir = u.side === "cat" ? 1 : -1;
-                // 각자 공격 모션: 근접은 앞으로 돌진+💥, 원거리는 제자리+빔/화살
-                const ranged = u.range >= 8;
-                const lunge = attacking && !ranged ? dir * 6 : 0; // 근접 돌진
-                const hitFx = u.range >= 12 ? "🔆" : u.range >= 8 ? "✨" : u.range >= 6 ? "💫" : "💥";
+                // 각 유닛 고유 공격 모션
+                const af = ATTACK_FX[u.typeId] ?? { fx: "💥", style: "punch" as const };
+                let lunge = 0, rot = 0, scale = 1;
+                if (attacking) {
+                  switch (af.style) {
+                    case "punch": lunge = dir * 6; break;
+                    case "charge": lunge = dir * 9; scale = 1.1; break;
+                    case "bash": lunge = dir * 4; scale = 1.15; break;
+                    case "slash": rot = dir * -35; scale = 1.2; break;
+                    case "stab": lunge = dir * 5; rot = dir * -8; break;
+                    case "smash": scale = 1.45; break;
+                    case "beam": scale = 1.1; break;
+                    case "throw": scale = 1.05; break;
+                  }
+                }
+                const projectile = af.style === "beam" || af.style === "throw";
                 return (
                   <div
                     key={u.uid}
@@ -858,19 +888,19 @@ export default function BattleCatsPage() {
                       <span
                         className="text-lg leading-none drop-shadow transition-transform duration-75"
                         style={{
-                          transform: attacking ? `rotate(${dir * -18}deg) scale(1.25)` : "none",
+                          transform: `rotate(${rot}deg) scale(${scale})`,
                           filter: hurt ? "brightness(1.8) sepia(1) hue-rotate(-40deg) saturate(4)" : "none",
                         }}
                       >
                         {u.emoji}
                       </span>
-                      {/* 공격 이펙트 */}
+                      {/* 고유 공격 이펙트 */}
                       {attacking && (
                         <span
-                          className="absolute text-sm animate-ping"
-                          style={{ left: ranged ? `${dir * 14}px` : `${dir * 10}px`, top: ranged ? "2px" : "6px" }}
+                          className={`absolute text-sm ${projectile ? "animate-ping" : "animate-pulse"}`}
+                          style={{ left: projectile ? `${dir * 16}px` : `${dir * 9}px`, top: projectile ? "2px" : "5px" }}
                         >
-                          {hitFx}
+                          {af.fx}
                         </span>
                       )}
                     </div>
