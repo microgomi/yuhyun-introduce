@@ -169,7 +169,7 @@ const ALL_CHALLENGES: Challenge[] = [
 // ============================================================
 export default function RecipeMaker() {
   const [screen, setScreen] = useState<Screen>("menu");
-  const [coins, setCoins] = useState(100);
+  const [coins, setCoins] = useState(1000);
   const [ingredients, setIngredients] = useState<Ingredient[]>(ALL_INGREDIENTS.map((i) => ({ ...i })));
   const [recipes, setRecipes] = useState<Recipe[]>(ALL_RECIPES.map((r) => ({ ...r })));
   const [challenges, setChallenges] = useState<Challenge[]>(ALL_CHALLENGES.map((c) => ({ ...c })));
@@ -461,27 +461,32 @@ export default function RecipeMaker() {
                 <div className="text-sm font-bold text-gray-400 mb-2">{cuisine} ({count}/{cuisineRecipes.length})</div>
                 <div className="space-y-1.5">
                   {cuisineRecipes.map((r) => (
-                    <div key={r.id} className={`rounded-lg p-3 border ${r.discovered ? "bg-white/5 border-white/10" : "bg-gray-800/30 border-gray-700 opacity-40"}`}>
+                    <div key={r.id} className={`rounded-lg p-3 border ${r.discovered ? "bg-white/5 border-white/10" : "bg-amber-900/20 border-amber-700/40"}`}>
                       <div className="flex items-center gap-3">
-                        <span className="text-2xl">{r.discovered ? r.icon : "❓"}</span>
+                        <span className="text-2xl">{r.discovered ? r.icon : "💡"}</span>
                         <div className="flex-1">
-                          <div className="font-bold text-sm">{r.discovered ? r.name : "???"}</div>
-                          {r.discovered && <div className="text-xs text-gray-400">{r.description}</div>}
-                          {r.discovered && (
-                            <div className="flex gap-1 mt-1">
-                              {r.ingredients.map((id) => {
-                                const ing = ingredients.find((i) => i.id === id);
-                                return <span key={id} className="text-sm">{ing?.icon}</span>;
-                              })}
-                            </div>
-                          )}
-                        </div>
-                        {r.discovered && (
-                          <div className="text-right">
-                            <div className={`text-sm font-bold ${r.score >= 90 ? "text-yellow-400" : "text-gray-300"}`}>⭐{r.score}</div>
-                            <div className="text-[10px] text-gray-400">{"⭐".repeat(r.difficulty)}</div>
+                          <div className="font-bold text-sm">
+                            {r.name}
+                            {!r.discovered && <span className="ml-1 text-[10px] text-amber-400 font-normal">(미발견)</span>}
                           </div>
-                        )}
+                          <div className="text-xs text-gray-400">
+                            {r.discovered ? r.description : "💡 힌트: 아래 재료들을 넣고 요리하면 완성!"}
+                          </div>
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {r.ingredients.map((id) => {
+                              const ing = ingredients.find((i) => i.id === id);
+                              return (
+                                <span key={id} className={`text-sm ${r.discovered ? "" : "grayscale opacity-90"}`} title={ing?.name}>
+                                  {ing?.icon}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-sm font-bold ${r.score >= 90 ? "text-yellow-400" : "text-gray-300"}`}>⭐{r.score}</div>
+                          <div className="text-[10px] text-gray-400">{"⭐".repeat(r.difficulty)}</div>
+                        </div>
                       </div>
                     </div>
                   ))}
