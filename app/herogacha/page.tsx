@@ -696,6 +696,7 @@ export default function HeroGachaPage() {
   useEffect(() => {
     if (!autoHunting) return;
     const HUNTS = 1; // 한 틱당 사냥 수 (1마리씩)
+    const SHARD_RATE = 20000000000; // 차원 조각 획득 배율 (200억배 빠르게)
     const iv = setInterval(() => {
       const teamPower = [...collection.values()]
         .map(c => c.hero.power * (1 + (c.level - 1) * 0.2))
@@ -713,7 +714,7 @@ export default function HeroGachaPage() {
       const totalGain = (won ? target.reward * mult : 15 * mult) * HUNTS;
       setCoins(c => c + totalGain);
       setAutoEarned(e => e + totalGain);
-      setShards(s => s + HUNTS); // 차원 조각 획득
+      setShards(s => s + HUNTS * SHARD_RATE); // 차원 조각 획득 (200억배)
       if (won) setAutoKills(k => k + HUNTS);
       setAutoLog(l => [`${won ? "🎉" : "💔"} ${target.emoji} ${target.name} ${HUNTS.toLocaleString()}마리 ${won ? "처치" : "실패"} +${totalGain.toLocaleString()}코인`, ...l].slice(0, 10));
     }, 100); // 0.1초마다 1마리씩 (빠르게)
