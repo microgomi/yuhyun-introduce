@@ -55,7 +55,7 @@ interface Stage {
   reward: number;
 }
 
-type Screen = "menu" | "stageSelect" | "battle" | "victory" | "defeat" | "gacha" | "gachaResult";
+type Screen = "menu" | "stageSelect" | "battle" | "victory" | "defeat" | "gacha" | "gachaResult" | "upgrade";
 type GachaRarity = "rare" | "superRare" | "uber" | "legend";
 
 // --- Constants ---
@@ -228,6 +228,9 @@ export default function BattleCatsPage() {
   const [catFood, setCatFood] = useState(0);
   const [ownedGachaCats, setOwnedGachaCats] = useState<string[]>([]);
   const [gachaResults, setGachaResults] = useState<GachaCat[]>([]);
+  // 강화/레벨업: 경험치(XP) + 냥이별 레벨
+  const [xp, setXp] = useState(0);
+  const [catLevels, setCatLevels] = useState<Record<string, number>>({});
 
   const nextUid = useRef(0);
   const spawnQueue = useRef<{ enemyId: string; spawnTick: number }[]>([]);
@@ -249,18 +252,22 @@ export default function BattleCatsPage() {
         setTotalMoney(s.totalMoney || 0);
         setCatFood(s.catFood || 0);
         setOwnedGachaCats(s.ownedGachaCats || []);
+        setXp(s.xp || 0);
+        setCatLevels(s.catLevels || {});
       }
     } catch { /* ignore */ }
   }, []);
 
-  const saveGame = useCallback((cleared: number[], tm: number, cf?: number, owned?: string[]) => {
+  const saveGame = useCallback((cleared: number[], tm: number, cf?: number, owned?: string[], xpVal?: number, levels?: Record<string, number>) => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       clearedStages: cleared,
       totalMoney: tm,
       catFood: cf ?? catFood,
       ownedGachaCats: owned ?? ownedGachaCats,
+      xp: xpVal ?? xp,
+      catLevels: levels ?? catLevels,
     }));
-  }, [catFood, ownedGachaCats]);
+  }, [catFood, ownedGachaCats, xp, catLevels]);
 
   // 🎵 전투 BGM 재생 (오리지널 멜로디, 전투 화면에서만)
   useEffect(() => {
@@ -447,16 +454,19 @@ export default function BattleCatsPage() {
       setTimeout(() => {
         if (currentStage) {
           const foodReward = 30 + currentStage.id * 10;
+          const xpReward = 50 + currentStage.id * 30; // 강화 경험치
           const newFood = catFood + foodReward;
+          const newXp = xp + xpReward;
           setCatFood(newFood);
+          setXp(newXp);
           if (!clearedStages.includes(currentStage.id)) {
             const newCleared = [...clearedStages, currentStage.id];
             const newTotal = totalMoney + currentStage.reward;
             setClearedStages(newCleared);
             setTotalMoney(newTotal);
-            saveGame(newCleared, newTotal, newFood);
+            saveGame(newCleared, newTotal, newFood, undefined, newXp);
           } else {
-            saveGame(clearedStages, totalMoney, newFood);
+            saveGame(clearedStages, totalMoney, newFood, undefined, newXp);
           }
         }
         setScreen("victory");
@@ -466,15 +476,17 @@ export default function BattleCatsPage() {
       if (gameLoop.current) clearInterval(gameLoop.current);
       setTimeout(() => setScreen("defeat"), 500);
     }
-  }, [enemyBaseHp, catBaseHp, screen, currentStage, clearedStages, totalMoney, catFood, saveGame]);
+  }, [enemyBaseHp, catBaseHp, screen, currentStage, clearedStages, totalMoney, catFood, xp, saveGame]);
 
   const deployCat = useCallback((cat: CatType) => {
     if (money < cat.cost || (cooldowns[cat.id] ?? 0) > 0) return;
     setMoney((m) => m - cat.cost);
     setCooldowns((prev) => ({ ...prev, [cat.id]: cat.cooldown }));
 
-    const scaledHp = Math.floor(cat.hp * (1 + clearedStages.length * 0.08));
-    const scaledAtk = Math.floor(cat.atk * (1 + clearedStages.length * 0.06));
+    const lvl = catLevels[cat.id] ?? 1; // 강화 레벨 (레벨당 +12% 능력치)
+    const lvlMul = 1 + (lvl - 1) * 0.12;
+    const scaledHp = Math.floor(cat.hp * (1 + clearedStages.length * 0.08) * lvlMul);
+    const scaledAtk = Math.floor(cat.atk * (1 + clearedStages.length * 0.06) * lvlMul);
 
     const unit: Unit = {
       uid: nextUid.current++,
@@ -491,7 +503,7 @@ export default function BattleCatsPage() {
       side: "cat",
     };
     setUnits((prev) => [...prev, unit]);
-  }, [money, cooldowns, clearedStages.length]);
+  }, [money, cooldowns, clearedStages.length, catLevels]);
 
   // 지갑(일꾼냥) 레벨업 — 돈 재생량 증가
   const walletUpgradeCost = 200 + (walletLevel - 1) * 250;
@@ -510,6 +522,20 @@ export default function BattleCatsPage() {
       ? { ...u, hp: u.hp - dmg, x: Math.min(95, u.x + 10) } // 피해 + 넉백
       : u));
   }, [cannonCharge, currentStage]);
+
+  // 냥이 레벨업(강화) — 경험치 소모
+  const catXpCost = (level: number) => 50 * level;
+  const levelUpCat = useCallback((id: string) => {
+    const lvl = catLevels[id] ?? 1;
+    if (lvl >= 30) return;
+    const cost = catXpCost(lvl);
+    if (xp < cost) return;
+    const newXp = xp - cost;
+    const newLevels = { ...catLevels, [id]: lvl + 1 };
+    setXp(newXp);
+    setCatLevels(newLevels);
+    saveGame(clearedStages, totalMoney, undefined, undefined, newXp, newLevels);
+  }, [catLevels, xp, clearedStages, totalMoney, saveGame]);
 
   const gachaCatsAsCatType: CatType[] = GACHA_CATS.filter((g) => ownedGachaCats.includes(g.id)).map((g) => ({
     ...g,
@@ -562,6 +588,9 @@ export default function BattleCatsPage() {
             </button>
             <button onClick={() => setScreen("gacha")} className="w-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 py-4 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
               🎰 캣 뽑기! ({catFood}🍗)
+            </button>
+            <button onClick={() => setScreen("upgrade")} className="w-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 py-4 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
+              💪 냥이 강화! ({xp}🎫)
             </button>
             <Link href="/" className="block w-full rounded-full border-2 border-amber-300 bg-white/80 dark:bg-slate-800/80 py-3 text-center text-sm font-bold text-amber-600 dark:text-amber-400 transition-transform hover:scale-105 active:scale-95">
               🏠 소개페이지로
@@ -818,10 +847,17 @@ export default function BattleCatsPage() {
               <button onClick={() => setScreen("menu")} className="text-sm text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-white">뒤로</button>
             </div>
 
+            {/* 보유 재화 */}
+            <div className="flex justify-center gap-4 text-lg font-bold">
+              <span className="text-orange-500">🍗 {catFood}</span>
+              <span className="text-cyan-500">🎫 {xp} <span className="text-xs font-normal text-slate-400">(강화 경험치)</span></span>
+            </div>
+
+            {/* 🎰 레어 뽑기 (냥이) */}
             <div className="text-center rounded-2xl border border-purple-300 bg-gradient-to-b from-purple-100 to-pink-100 dark:border-purple-800 dark:from-purple-950/60 dark:to-pink-950/60 p-6 space-y-4">
               <div className="text-6xl animate-bounce">🎰</div>
-              <p className="text-2xl font-black text-purple-600 dark:text-purple-400">캣 뽑기!</p>
-              <p className="text-lg font-bold">보유: <span className="text-orange-500">{catFood}</span> 🍗</p>
+              <p className="text-2xl font-black text-purple-600 dark:text-purple-400">레어 뽑기!</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">레어~레전드 냥이 · ⚡전설은 주황 번개!</p>
 
               <div className="flex gap-3 justify-center">
                 <button
@@ -880,6 +916,29 @@ export default function BattleCatsPage() {
               </div>
             </div>
 
+            {/* 🎟️ 일반 뽑기 (경험치) */}
+            <div className="text-center rounded-2xl border border-teal-300 bg-gradient-to-b from-teal-50 to-cyan-100 dark:border-teal-800 dark:from-teal-950/60 dark:to-cyan-950/60 p-5 space-y-3">
+              <p className="text-lg font-black text-teal-600 dark:text-teal-400">🎟️ 일반 뽑기</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">냥이 강화에 쓰는 경험치(🎫)를 뽑아요!</p>
+              <button
+                onClick={() => {
+                  const cost = 40;
+                  if (catFood < cost) return;
+                  const gained = 100 + Math.floor(Math.random() * 400); // 100~500 XP
+                  const newFood = catFood - cost;
+                  const newXp = xp + gained;
+                  setCatFood(newFood);
+                  setXp(newXp);
+                  saveGame(clearedStages, totalMoney, newFood, undefined, newXp);
+                  window.alert(`🎫 강화 경험치 +${gained}!`);
+                }}
+                disabled={catFood < 40}
+                className={`rounded-xl px-6 py-3 font-bold text-white shadow-lg transition-transform hover:scale-105 active:scale-95 ${catFood >= 40 ? "bg-gradient-to-r from-teal-500 to-cyan-500" : "bg-gray-400 opacity-50"}`}
+              >
+                일반 뽑기<br /><span className="text-xs">40 🍗 → 경험치 100~500</span>
+              </button>
+            </div>
+
             {/* Rates */}
             <div className="rounded-2xl border border-slate-200 bg-white/60 dark:border-slate-800 dark:bg-slate-900/60 p-4">
               <p className="mb-2 text-sm font-bold text-slate-600 dark:text-slate-400">📊 확률표</p>
@@ -917,10 +976,76 @@ export default function BattleCatsPage() {
           </div>
         )}
 
+        {/* === UPGRADE (강화/레벨업) === */}
+        {screen === "upgrade" && (
+          <div className="w-full max-w-md space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-black">💪 냥이 강화</h2>
+              <button onClick={() => setScreen("menu")} className="text-sm text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-white">뒤로</button>
+            </div>
+            <div className="rounded-xl bg-emerald-100 dark:bg-emerald-950/40 p-3 text-center font-bold text-emerald-700 dark:text-emerald-300">
+              🎫 강화 경험치: {xp} <span className="text-xs font-normal">(스테이지 클리어·일반뽑기로 획득)</span>
+            </div>
+            <div className="space-y-1.5">
+              {availableCats.map((cat) => {
+                const lvl = catLevels[cat.id] ?? 1;
+                const cost = catXpCost(lvl);
+                const maxed = lvl >= 30;
+                const canUp = !maxed && xp >= cost;
+                const mul = 1 + (lvl - 1) * 0.12;
+                return (
+                  <div key={cat.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/70 dark:border-slate-700 dark:bg-slate-800/70 p-2">
+                    <span className="text-2xl">{cat.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{cat.name} <span className="text-emerald-500">Lv.{lvl}</span></p>
+                      <p className="text-[9px] text-slate-500 dark:text-slate-400">
+                        ❤️{Math.floor(cat.hp * mul)} ⚔️{Math.floor(cat.atk * mul)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => levelUpCat(cat.id)}
+                      disabled={!canUp}
+                      className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all active:scale-95 ${
+                        maxed ? "bg-amber-400 text-white"
+                        : canUp ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
+                        : "bg-gray-200 text-gray-400 dark:bg-slate-700"
+                      }`}
+                    >
+                      {maxed ? "MAX" : `▲Lv.${lvl + 1} · 🎫${cost}`}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* === GACHA RESULT === */}
         {screen === "gachaResult" && gachaResults.length > 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 w-full max-w-md">
-            <h2 className="text-2xl font-black">
+          <div className="relative flex flex-1 flex-col items-center justify-center gap-4 w-full max-w-md">
+            {/* ⚡ 레전드(전설) 등장 시 주황색 번개 연출 */}
+            {gachaResults.some((c) => c.rarity === "legend") && (
+              <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden">
+                <div className="absolute inset-0 bc-legend-flash bg-gradient-to-b from-orange-500/40 via-amber-400/20 to-transparent" />
+                {["⚡", "🌩️", "⚡", "🌩️", "⚡", "⚡"].map((b, i) => (
+                  <span key={i} className="absolute bc-bolt text-orange-400 drop-shadow-[0_0_8px_rgba(255,140,0,0.9)]"
+                    style={{ left: `${8 + i * 16}%`, top: "-10%", fontSize: `${44 + (i % 3) * 18}px`, animationDelay: `${i * 0.12}s` }}>{b}</span>
+                ))}
+                <div className="absolute left-1/2 top-1/3 -translate-x-1/2 bc-legend-text text-center">
+                  <div className="text-3xl font-black text-orange-400 drop-shadow-[0_0_10px_rgba(255,120,0,1)]">⚡ LEGEND! ⚡</div>
+                  <div className="text-sm font-bold text-amber-300">전설 레어 등장!!</div>
+                </div>
+              </div>
+            )}
+            <style>{`
+              @keyframes bcBolt { 0%{transform:translateY(0) scaleY(1);opacity:0} 10%{opacity:1} 60%{transform:translateY(140vh) scaleY(1.4);opacity:1} 100%{transform:translateY(160vh);opacity:0} }
+              @keyframes bcFlash { 0%,100%{opacity:0} 15%{opacity:1} 35%{opacity:.3} 55%{opacity:.9} 75%{opacity:.2} }
+              @keyframes bcLegendText { 0%{transform:translate(-50%,20px) scale(.6);opacity:0} 40%{transform:translate(-50%,0) scale(1.1);opacity:1} 100%{transform:translate(-50%,0) scale(1);opacity:1} }
+              .bc-bolt { animation: bcBolt 0.9s ease-in forwards; }
+              .bc-legend-flash { animation: bcFlash 1.3s ease-out; }
+              .bc-legend-text { animation: bcLegendText 0.8s ease-out 0.2s both; }
+            `}</style>
+            <h2 className="relative z-50 text-2xl font-black">
               {gachaResults.length === 1 ? "🎊 뽑기 결과!" : "🎊 10연차 결과!"}
             </h2>
 
