@@ -27,16 +27,26 @@ const SHOULDER_Y = 190, HEAD_Y = 165, HEAD_R = 15, HIP_Y = 245, FOOT_Y = GROUND;
 const SAVE = "bodyfighter_best";
 const PX = 138, CX = 214; // 고정 위치 (턴제)
 
-type Attack = { active: boolean; t: number; hitDone: boolean; kind: "punch" | "kick"; aim: number; air: boolean };
+type Kind = "punch" | "kick" | "smash" | "slam" | "spin";
+// 공격별 설정: origin(어깨/엉덩이), 사거리, 데미지
+const KIND: Record<Kind, { origin: "sh" | "hip"; base: number; reach: number; dmg: number }> = {
+  punch: { origin: "sh", base: 14, reach: 60, dmg: 9 },
+  kick: { origin: "hip", base: 18, reach: 92, dmg: 15 },
+  smash: { origin: "sh", base: 16, reach: 82, dmg: 22 },
+  slam: { origin: "sh", base: 16, reach: 88, dmg: 18 },
+  spin: { origin: "hip", base: 18, reach: 98, dmg: 19 },
+};
+const legKind = (k: Kind) => k === "kick" || k === "spin";
+const armKind = (k: Kind) => k === "punch" || k === "smash" || k === "slam";
+type Attack = { active: boolean; t: number; hitDone: boolean; kind: Kind; aim: number; air: boolean };
 type Fighter = { x: number; hp: number; aim: number; legAim: number; atk: Attack; hurtT: number; yOff: number; jumpT: number };
 const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2, air: false }, hurtT: 0, yOff: 0, jumpT: 0 });
 
-function limbTip(f: Fighter, dir: number, kind: "punch" | "kick", ext: number) {
-  const originY = (kind === "punch" ? SHOULDER_Y : HIP_Y) + f.yOff;
-  const base = kind === "punch" ? 14 : 18;
-  const reach = kind === "punch" ? 60 : 92; // 다리는 사거리(공간) 더 넓게
-  const aim = f.atk.aim; // 펀치=팔각도, 킥=다리각도 (attack 시작 시 지정)
-  const len = base + reach * ext;
+function limbTip(f: Fighter, dir: number, kind: Kind, ext: number) {
+  const cfg = KIND[kind];
+  const originY = (cfg.origin === "sh" ? SHOULDER_Y : HIP_Y) + f.yOff;
+  const aim = f.atk.aim;
+  const len = cfg.base + cfg.reach * ext;
   return { x: f.x + dir * len * Math.cos(aim), y: originY + len * Math.sin(aim) };
 }
 
@@ -50,7 +60,13 @@ export default function MotionFighter() {
   const [cWins, setCWins] = useState(0);
   const [msg, setMsg] = useState("내 차례! 조준하고 공격!");
 
-  const g = useRef({ p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false });
+  const g = useRef({
+    p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
+    shake: 0, combo: 0, comboT: 0,
+    parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
+    pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
+  });
+  const [combo, setCombo] = useState(0);
   const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false });
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -62,14 +78,19 @@ export default function MotionFighter() {
     if (!keepWins) { setPWins(0); setCWins(0); }
   }, []);
 
-  const doAttack = useCallback((kind: "punch" | "kick") => {
+  const doAttack = useCallback((kind: Kind) => {
     const S = g.current;
     if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.atk.active) return;
     const a = S.p.atk;
-    a.active = true; a.t = 0; a.hitDone = false; a.kind = kind;
-    a.aim = kind === "kick" ? S.p.legAim : S.p.aim; // 킥=다리각도, 펀치=팔각도
-    a.air = S.p.yOff < -6; // 점프 중이면 점프 공격
-    sSwing();
+    const air = S.p.yOff < -6;
+    a.active = true; a.t = 0; a.hitDone = false; a.kind = kind; a.air = air;
+    if (legKind(kind)) a.aim = S.p.legAim;
+    else if (kind === "slam") a.aim = air ? 1.2 : 0.85; // 내려찍기: 아래로 (점프 중이면 더 급하게)
+    else a.aim = S.p.aim; // punch / smash = 팔 각도
+    if (kind === "smash") beep(160, 0.14, "square", 0.12);
+    else if (kind === "slam") beep(120, 0.16, "sawtooth", 0.12);
+    else if (kind === "spin") { beep(400, 0.06, "triangle", 0.08); setTimeout(() => beep(550, 0.08, "triangle", 0.08), 60); }
+    else sSwing();
   }, []);
 
   const checkHit = (tip: { x: number; y: number }, target: Fighter): "head" | "body" | null => {
@@ -128,16 +149,32 @@ export default function MotionFighter() {
             const res = checkHit(tip, target);
             if (res) {
               a.hitDone = true;
-              let baseDmg = a.kind === "kick" ? 15 : 9;
+              let baseDmg = KIND[a.kind].dmg;
               if (a.air) baseDmg = Math.round(baseDmg * 1.5); // 점프 공격 보너스
               const dmg = res === "head" ? Math.round(baseDmg * 1.8) : baseDmg;
               target.hp = Math.max(0, target.hp - dmg);
               target.hurtT = 0.3;
+              target.x = Math.max(40, Math.min(320, target.x + (isPlayer ? 1 : -1) * (res === "head" ? 14 : 7))); // 넉백
               if (res === "head") sCrit(); else sHit();
               setMsg(`${a.air ? "점프 " : ""}${isPlayer ? "적" : "나"}에게 ${dmg}!${res === "head" ? " 크리티컬! 💥" : ""}`);
+              // 💥 도파민 연출: 화면 흔들림 + 파편 + 큰 데미지 + 콤보
+              const tx = target.x, ty = HEAD_Y + target.yOff + (res === "body" ? 28 : 0);
+              const big = res === "head" || a.air || KIND[a.kind].dmg >= 18;
+              S.shake = Math.min(18, S.shake + (big ? 13 : 6));
+              const pc = res === "head" ? "#fde047" : big ? "#fb7185" : "#93c5fd";
+              for (let i = 0; i < (big ? 18 : 9); i++) {
+                const ang = Math.random() * Math.PI * 2, sp = 50 + Math.random() * (big ? 180 : 90);
+                S.parts.push({ x: tx, y: ty, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 0.5 + Math.random() * 0.45, c: pc });
+              }
+              S.pops.push({ x: tx, y: ty - 18, txt: `${res === "head" ? "★" : ""}${dmg}`, life: 0.85, big });
+              if (isPlayer) {
+                S.combo++; S.comboT = 1.8;
+                if (S.combo >= 2) S.pops.push({ x: W / 2, y: 46, txt: `${S.combo} COMBO!! 🔥`, life: 1.1, big: true });
+                setCombo(S.combo);
+              } else { S.combo = 0; setCombo(0); }
             }
           }
-          if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); return true; }
+          if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) { setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); if (isPlayer && S.combo !== 0) { S.combo = 0; setCombo(0); } } return true; }
           return false;
         };
         const pDone = advance(p, 1, c, true);
@@ -154,10 +191,13 @@ export default function MotionFighter() {
         if (S.turn === "c" && !c.atk.active && !S.over && c.hp > 0) {
           S.cpuTimer -= dt;
           if (S.cpuTimer <= 0) {
-            const kind = Math.random() < 0.55 ? "punch" : "kick";
             const air = Math.random() < 0.3; // 가끔 점프 공격
             if (air) c.jumpT = 0.7;
-            c.aim = (Math.random() < 0.55 ? -0.35 : 0.05) + (Math.random() - 0.5) * 0.25;
+            const r2 = Math.random();
+            let kind: Kind;
+            if (air && r2 < 0.5) kind = "slam";
+            else kind = r2 < 0.35 ? "punch" : r2 < 0.58 ? "kick" : r2 < 0.78 ? "smash" : "spin";
+            c.aim = kind === "slam" ? (air ? 1.2 : 0.85) : (Math.random() < 0.55 ? -0.35 : 0.08) + (Math.random() - 0.5) * 0.25;
             c.atk.active = true; c.atk.t = 0; c.atk.hitDone = false; c.atk.kind = kind; c.atk.aim = c.aim; c.atk.air = air;
             sSwing();
           }
@@ -175,18 +215,35 @@ export default function MotionFighter() {
         if (S.turn !== turnRef.current) { turnRef.current = S.turn; setTurn(S.turn); }
       }
 
+      // 연출 물리 (항상 갱신)
+      if (S.shake > 0) S.shake = Math.max(0, S.shake - 55 * dt);
+      for (const pa of S.parts) { pa.x += pa.vx * dt; pa.y += pa.vy * dt; pa.vy += 320 * dt; pa.life -= dt; }
+      if (S.parts.length) S.parts = S.parts.filter((pa) => pa.life > 0);
+      for (const po of S.pops) { po.y -= 34 * dt; po.life -= dt; }
+      if (S.pops.length) S.pops = S.pops.filter((po) => po.life > 0);
+      if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0 && S.combo !== 0) { S.combo = 0; setCombo(0); } }
+
       // 렌더
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       const grad = ctx.createLinearGradient(0, 0, 0, H);
       grad.addColorStop(0, "#1e1b4b"); grad.addColorStop(1, "#0f172a");
       ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = "#312e81"; ctx.fillRect(0, GROUND + 8, W, H - GROUND);
-      // 차례 표시등
+      ctx.save();
+      if (S.shake > 0) ctx.translate((Math.random() - 0.5) * S.shake, (Math.random() - 0.5) * S.shake);
+      ctx.fillStyle = "#312e81"; ctx.fillRect(-20, GROUND + 8, W + 40, H - GROUND + 20);
       ctx.fillStyle = S.turn === "p" ? "rgba(56,189,248,0.15)" : "rgba(251,113,133,0.15)";
-      ctx.fillRect(S.turn === "p" ? 0 : W / 2, 0, W / 2, H);
+      ctx.fillRect(S.turn === "p" ? -20 : W / 2, -20, W / 2 + 20, H + 40);
       drawFighter(ctx, p, 1, "#38bdf8", true);
       drawFighter(ctx, c, -1, "#fb7185", false);
+      // 파편
+      for (const pa of S.parts) { ctx.globalAlpha = Math.min(1, pa.life * 2.5); ctx.fillStyle = pa.c; ctx.beginPath(); ctx.arc(pa.x, pa.y, 3, 0, 7); ctx.fill(); }
+      ctx.globalAlpha = 1;
+      // 데미지 팝업
+      ctx.textAlign = "center";
+      for (const po of S.pops) { ctx.globalAlpha = Math.min(1, po.life * 1.6); ctx.fillStyle = po.big ? "#fde047" : "#fff"; ctx.font = `900 ${po.big ? 24 : 15}px sans-serif`; ctx.fillText(po.txt, po.x, po.y); }
+      ctx.globalAlpha = 1;
+      ctx.restore();
     };
     const turnRef = { current: "p" as "p" | "c" };
     raf = requestAnimationFrame(loop);
@@ -211,27 +268,39 @@ export default function MotionFighter() {
       ctx.restore();
     }
 
-    const kicking = f.atk.active && f.atk.kind === "kick";
-    const kickExt = kicking ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0;
-    ctx.strokeStyle = hurt ? "#ef4444" : color;
+    const atkExt = f.atk.active ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0;
+    const legAtk = f.atk.active && legKind(f.atk.kind);
+    const armAtk = f.atk.active && armKind(f.atk.kind);
+    const spinning = f.atk.active && f.atk.kind === "spin";
+
+    // 돌려차기: 몸 전체 회전
+    ctx.save();
+    if (spinning) { const ang = Math.sin(Math.min(1, f.atk.t) * Math.PI) * dir * 1.0; ctx.translate(x, hipY - 25); ctx.rotate(ang); ctx.translate(-x, -(hipY - 25)); }
+    ctx.strokeStyle = hurt ? "#ef4444" : color; ctx.fillStyle = hurt ? "#ef4444" : color;
+
+    // 다리
     ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x - dir * 12, FOOT_Y + oy); ctx.stroke();
-    if (kicking) {
-      const foot = limbTip(f, dir, "kick", kickExt);
+    if (legAtk) {
+      const foot = limbTip(f, dir, f.atk.kind, atkExt);
       ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(foot.x, foot.y); ctx.stroke();
       ctx.beginPath(); ctx.arc(foot.x, foot.y, 5, 0, 7); ctx.fill();
     } else { ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + dir * 10, FOOT_Y + oy); ctx.stroke(); }
 
+    // 몸통 + 뒷팔
     ctx.beginPath(); ctx.moveTo(x, hdY + HEAD_R); ctx.lineTo(x, hipY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x - dir * 14, shY + 18); ctx.stroke();
 
-    const punching = f.atk.active && f.atk.kind === "punch";
-    const punchExt = punching ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0.12;
-    const fist = limbTip(f, dir, "punch", punchExt);
+    // 앞팔/주먹 (펀치·스매쉬·내려찍기 = 뻗음, 아니면 조준 방향)
+    let fist: { x: number; y: number };
+    if (armAtk) fist = limbTip(f, dir, f.atk.kind, atkExt);
+    else { const len = 14 + 60 * 0.12; fist = { x: x + dir * len * Math.cos(f.aim), y: shY + len * Math.sin(f.aim) }; }
     ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(fist.x, fist.y); ctx.stroke();
     ctx.beginPath(); ctx.arc(fist.x, fist.y, 6, 0, 7); ctx.fill();
 
+    // 머리
     ctx.beginPath(); ctx.arc(x, hdY, HEAD_R, 0, 7); ctx.fill();
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + dir * 5, hdY - 2, 2.5, 0, 7); ctx.fill();
+    ctx.restore();
   }
 
   const setHold = (k: keyof typeof held.current, v: boolean) => { held.current[k] = v; };
@@ -245,6 +314,9 @@ export default function MotionFighter() {
         case " ": case "z": case "Z": e.preventDefault(); doJump(); break;
         case "j": case "J": doAttack("punch"); break;
         case "k": case "K": doAttack("kick"); break;
+        case "l": case "L": doAttack("smash"); break;
+        case "o": case "O": doAttack("slam"); break;
+        case "u": case "U": doAttack("spin"); break;
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -295,6 +367,11 @@ export default function MotionFighter() {
         <div className="relative rounded-2xl overflow-hidden border-2 border-purple-700/60">
           <canvas ref={canvasRef} width={W} height={H} className="w-full bg-slate-900" />
           <div className="absolute top-2 left-1/2 -translate-x-1/2 text-sm font-black text-yellow-300 drop-shadow px-2 text-center">{msg}</div>
+          {combo >= 2 && (
+            <div className="absolute top-2 right-2 text-right animate-pulse">
+              <div className="text-2xl font-black text-orange-400 drop-shadow">{combo}<span className="text-sm"> COMBO</span></div>
+            </div>
+          )}
           {phase === "ko" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-center px-4">
               <div className="text-5xl">{chP <= 0 ? "🏆" : "💀"}</div>
@@ -316,12 +393,17 @@ export default function MotionFighter() {
           {holdBtn("legDown", "🔽다리")}
         </div>
         <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-          <button onClick={doJump} disabled={!myTurn} className={`rounded-xl py-4 text-base font-black active:scale-90 ${myTurn ? "bg-purple-600 active:bg-purple-500" : "bg-slate-800 text-slate-500"}`}>⬆️ 점프</button>
-          <button onClick={() => doAttack("punch")} disabled={!myTurn} className={`rounded-xl py-4 text-base font-black active:scale-90 ${myTurn ? "bg-amber-600 active:bg-amber-500" : "bg-slate-800 text-slate-500"}`}>👊 펀치</button>
-          <button onClick={() => doAttack("kick")} disabled={!myTurn} className={`rounded-xl py-4 text-base font-black active:scale-90 ${myTurn ? "bg-orange-600 active:bg-orange-500" : "bg-slate-800 text-slate-500"}`}>🦵 킥</button>
+          <button onClick={doJump} disabled={!myTurn} className={`rounded-xl py-3.5 text-base font-black active:scale-90 ${myTurn ? "bg-purple-600 active:bg-purple-500" : "bg-slate-800 text-slate-500"}`}>⬆️ 점프</button>
+          <button onClick={() => doAttack("punch")} disabled={!myTurn} className={`rounded-xl py-3.5 text-base font-black active:scale-90 ${myTurn ? "bg-amber-600 active:bg-amber-500" : "bg-slate-800 text-slate-500"}`}>👊 펀치</button>
+          <button onClick={() => doAttack("kick")} disabled={!myTurn} className={`rounded-xl py-3.5 text-base font-black active:scale-90 ${myTurn ? "bg-orange-600 active:bg-orange-500" : "bg-slate-800 text-slate-500"}`}>🦵 킥</button>
         </div>
-        <p className="text-center text-[11px] text-gray-300 mt-2"><b>팔(노랑)·다리(주황) 조준선</b>을 각자 맞춰 👊킥! <b>머리=크리티컬</b>, <b>⬆️점프 중 공격=점프 콤보(1.5배)!</b> 각도 제한 없음(360°).</p>
-        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓팔 · ←→다리 · Space점프 · J펀치 · K킥</p>
+        <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+          <button onClick={() => doAttack("smash")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-red-600 active:bg-red-500" : "bg-slate-800 text-slate-500"}`}>💥 스매쉬</button>
+          <button onClick={() => doAttack("slam")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-rose-700 active:bg-rose-600" : "bg-slate-800 text-slate-500"}`}>⬇️ 내려찍기</button>
+          <button onClick={() => doAttack("spin")} disabled={!myTurn} className={`rounded-xl py-3.5 text-sm font-black active:scale-90 ${myTurn ? "bg-fuchsia-700 active:bg-fuchsia-600" : "bg-slate-800 text-slate-500"}`}>🌀 돌려차기</button>
+        </div>
+        <p className="text-center text-[11px] text-gray-300 mt-2"><b>스킬</b>: 👊펀치 🦵킥 💥스매쉬(강) ⬇️내려찍기(공중강) 🌀돌려차기 · <b>머리=크리티컬</b> · <b>점프 콤보 1.5배!</b> 각도 무제한(360°)</p>
+        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓팔·←→다리·Space점프·J펀치·K킥·L스매쉬·O내려찍기·U돌려차기</p>
       </div>
     </div>
   );
