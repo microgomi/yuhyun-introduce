@@ -470,6 +470,11 @@ export default function HeroGachaPage() {
   const [scienceOpen, setScienceOpen] = useState(false); // 과학 퀴즈 모달
   const [secretClicks, setSecretClicks] = useState(0); // 비밀 이벤트 (로고 7번)
   const [secretUnlocked, setSecretUnlocked] = useState(false);
+  // 🌌 초비밀 이벤트 (5경배) — 3단계 숨김 잠금
+  const [megaHint, setMegaHint] = useState(false);   // 1단계: 로고 20번 → 숨김 표식 등장
+  const [megaTaps, setMegaTaps] = useState(0);       // 2단계: 표식 5번 탭
+  const [megaAsk, setMegaAsk] = useState(false);     // 3단계: 암호 입력 버튼 등장
+  const MEGA_MULT = 50000000000000000; // 5경배
   const [w2Cleared, setW2Cleared] = useState<Set<string>>(new Set());
   const [w2Log, setW2Log] = useState<string[]>([]);
   const [w2Boss, setW2Boss] = useState<DimBoss | null>(null);
@@ -828,12 +833,12 @@ export default function HeroGachaPage() {
     });
   };
 
-  const startEvent = (mult: number) => {
-    const end = Date.now() + 3 * 60 * 1000; // 3분
+  const startEvent = (mult: number, durationMin = 3) => {
+    const end = Date.now() + durationMin * 60 * 1000;
     setEventEndsAt(end);
     setEventMult(mult);
     try { localStorage.setItem("herogacha_event", JSON.stringify({ end, mult })); } catch { /* ignore */ }
-    setEventLog(l => [`🎉 ${mult.toLocaleString()}배 코인 이벤트 시작! (3분 · 1분마다 비밀 보스)`, ...l].slice(0, 8));
+    setEventLog(l => [`🎉 ${mult.toLocaleString()}배 코인 이벤트 시작! (${durationMin}분 · 1분마다 비밀 보스)`, ...l].slice(0, 8));
   };
 
   // 이벤트 비밀 보스
@@ -1045,7 +1050,7 @@ export default function HeroGachaPage() {
 
           <div className="text-center mb-6">
             <div className="text-6xl mb-2 cursor-pointer select-none"
-              onClick={() => setSecretClicks(c => { const n = c + 1; if (n >= 7) setSecretUnlocked(true); return n; })}>🎰</div>
+              onClick={() => setSecretClicks(c => { const n = c + 1; if (n >= 7) setSecretUnlocked(true); if (n >= 20) setMegaHint(true); return n; })}>🎰</div>
             <h1 className="text-3xl font-black mb-1">히어로 뽑기</h1>
             <p className="text-purple-300 text-sm">최강의 히어로를 모아라!</p>
           </div>
@@ -1055,6 +1060,36 @@ export default function HeroGachaPage() {
             <button onClick={() => { startEvent(5000); setSecretUnlocked(false); setSecretClicks(0); }}
               className="w-full mb-3 rounded-xl p-3 font-black bg-gradient-to-r from-fuchsia-600 via-yellow-400 to-fuchsia-600 text-slate-900 animate-pulse border-2 border-white/60">
               🤫 비밀 이벤트 발견! 5000배 이벤트 시작! (3분)
+            </button>
+          )}
+
+          {/* 🌌 초비밀 이벤트 (5경배) — 3단계: 로고 20번 → 표식 5탭 → 암호 */}
+          {megaHint && !megaAsk && (
+            <div className="mb-3 text-center">
+              <span
+                onClick={() => setMegaTaps(t => { const n = t + 1; if (n >= 5) setMegaAsk(true); return n; })}
+                className="cursor-pointer select-none text-lg text-indigo-300/40 hover:text-indigo-200 transition-colors"
+                title="???">
+                ✦ {megaTaps > 0 && megaTaps < 5 ? `${megaTaps}/5` : ""}
+              </span>
+            </div>
+          )}
+          {megaAsk && (
+            <button
+              onClick={() => {
+                const pw = window.prompt("🌌 초비밀 암호를 입력하세요\n(힌트: 이벤트 배수의 한국어 이름 — 5경 = '?경')");
+                if (pw === null) return;
+                const ok = ["5경", "오경", "50000000000000000", "5000조"].includes(pw.trim());
+                if (ok) {
+                  startEvent(MEGA_MULT, 5);
+                  window.alert("🌌🎉 초비밀 이벤트 해금!!\n5경(50,000,000,000,000,000)배 이벤트 시작! (5분)");
+                  setMegaHint(false); setMegaAsk(false); setMegaTaps(0); setSecretClicks(0);
+                } else {
+                  window.alert("❌ 암호가 틀렸어요! (힌트: 5경의 '경'을 생각해봐요)");
+                }
+              }}
+              className="w-full mb-3 rounded-xl p-3 font-black bg-gradient-to-r from-indigo-600 via-cyan-300 to-indigo-600 text-slate-900 animate-pulse border-2 border-cyan-200/80">
+              🌌 초비밀 이벤트?! 암호 입력하기 (5경배 · 5분)
             </button>
           )}
 
