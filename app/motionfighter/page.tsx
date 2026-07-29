@@ -60,6 +60,13 @@ function glowOrb(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
   gr.addColorStop(0, "#ffffff"); gr.addColorStop(0.45, c); gr.addColorStop(1, c + "00");
   ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.fill();
 }
+// ⚡ 전기(번개) 지그재그 선
+function drawBolt(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, jag = 16) {
+  const seg = 5;
+  ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(x1, y1);
+  for (let i = 1; i < seg; i++) { const t = i / seg; ctx.lineTo(x1 + (x2 - x1) * t + (Math.random() - 0.5) * jag, y1 + (y2 - y1) * t + (Math.random() - 0.5) * jag); }
+  ctx.lineTo(x2, y2); ctx.stroke();
+}
 
 function limbTip(f: Fighter, dir: number, kind: Kind, ext: number) {
   const cfg = KIND[kind];
@@ -82,7 +89,8 @@ export default function MotionFighter() {
   const g = useRef({
     p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
     shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1, dyingLine: "",
-    merge: { active: false, t: 0, x: 0, y: 0, done: false },
+    merge: { active: false, t: 0, x: 0, y: 0, done: false, pr: 0, spin: 0 },
+    bolts: [] as { x1: number; y1: number; x2: number; y2: number; life: number }[],
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
@@ -104,7 +112,7 @@ export default function MotionFighter() {
   const resetRound = useCallback((keepWins: boolean) => {
     g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
     g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
-    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.orbs = []; g.current.cineStage = -1; g.current.dyingLine = ""; g.current.merge = { active: false, t: 0, x: 0, y: 0, done: false };
+    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.orbs = []; g.current.cineStage = -1; g.current.dyingLine = ""; g.current.merge = { active: false, t: 0, x: 0, y: 0, done: false, pr: 0, spin: 0 }; g.current.bolts = [];
     setCombo(0); setCine({ active: false, line: "", loserLine: "", win: false, stage: -1 });
     setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
     if (!keepWins) { setPWins(0); setCWins(0); }
@@ -267,7 +275,7 @@ export default function MotionFighter() {
         // KO → 15초 액션 영화 시작
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
-          S.finish = 45; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          S.finish = 150; S.finishWin = c.hp <= 0; S.cineStage = -1;
           const loser = c.hp <= 0 ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
@@ -277,12 +285,12 @@ export default function MotionFighter() {
         if (S.turn !== turnRef.current) { turnRef.current = S.turn; setTurn(S.turn); }
       }
 
-      // 🎬 15초 액션 영화 (대사 → 기 모으기 → 참격 → 여파 → 결과)
+      // 🎬 150초 액션 영화 (105초까지 천천히 합체 → 발사)
       if (S.finish > 0) {
         S.finish -= dt;
-        const elapsed = 45 - S.finish;
-        // 7단계 (필살기=3): 0인트로 1도발 2기모으기 3필살기 4여파 5마무리 6결과
-        const stage = elapsed < 7 ? 0 : elapsed < 15 ? 1 : elapsed < 24 ? 2 : elapsed < 27 ? 3 : elapsed < 34 ? 4 : elapsed < 40 ? 5 : 6;
+        const elapsed = 150 - S.finish;
+        // 7단계: 0인트로(0~15) 1도발(~35) 2합체진행(~105) 3발사(~116) 4여파(~132) 5마무리(~143) 6결과
+        const stage = elapsed < 15 ? 0 : elapsed < 35 ? 1 : elapsed < 105 ? 2 : elapsed < 116 ? 3 : elapsed < 132 ? 4 : elapsed < 143 ? 5 : 6;
         const md = MODES[modeRef.current];
         if (stage !== S.cineStage) {
           S.cineStage = stage;
@@ -290,14 +298,25 @@ export default function MotionFighter() {
           const LINES = win ? md.cry : DEFEAT_CRY;
           setCine({ active: true, line: LINES[stage], loserLine: stage === 4 ? S.dyingLine : "", win, stage });
           if (stage <= 2) beep(200, 0.22, "sawtooth", 0.09); // 외침
+          if (stage === 2 && win && md.finisher === "orb") {
+            // 🔵+🔴 합체 시작 (35~105초 천천히)
+            S.merge = { active: true, t: 0, x: p.x + 48, y: SHOULDER_Y - 12 + p.yOff, done: false, pr: 0, spin: 0 };
+            beep(160, 0.3, "sine", 0.07);
+          }
           if (stage === 3) {
             const loser = win ? c : p;
             loser.hurtT = 6;
-            if (win && md.finisher === "orb") {
-              // 🔵+🔴 → 🟣 합체 시퀀스 시작 (폭발은 합체 완료 시)
-              S.merge = { active: true, t: 0, x: p.x + 48, y: SHOULDER_Y - 10 + p.yOff, done: false };
-              beep(200, 0.25, "sine", 0.08);
-            } else {
+            if (win && md.finisher === "orb" && S.merge.active) {
+              // 🟣 합체 완성 → 보라 구 발사 + 전기 대폭발
+              S.merge.done = true; S.merge.active = false;
+              S.flash = 1.4; S.shake = 52; sKo();
+              const sx = S.merge.x, sy = S.merge.y;
+              const dx = loser.x - sx, dy = (HEAD_Y + loser.yOff) - sy, d = Math.hypot(dx, dy) || 1;
+              S.orbs.push({ x: sx, y: sy, r: 26, life: 2.4, c: "#a855f7", vx: dx / d * 150, vy: dy / d * 150 });
+              for (let i = 0; i < 130; i++) { const a2 = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: sx, y: sy, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 1 + Math.random() * 1.4, c: ["#a855f7", "#c084fc", "#fff", "#818cf8"][i % 4] }); }
+              for (let i = 0; i < 16; i++) { const a2 = Math.random() * Math.PI * 2, ln = 70 + Math.random() * 130; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.4 }); }
+              S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "🟣 보랏빛 소멸!!", life: 1.6, big: true });
+            } else if (!(win && md.finisher === "orb")) {
               // ⚔️ 참격 즉시 발동! 대폭발
               S.flash = 1.2; S.shake = 44; sKo();
               const cols = win ? [md.color, md.aura, "#fff", "#fde047"] : ["#fff", "#f43f5e", "#a855f7", "#fde047"];
@@ -309,6 +328,8 @@ export default function MotionFighter() {
             }
           }
         }
+        // 합체 진행도 갱신 (35~105초)
+        if (S.merge.active && !S.merge.done) { S.merge.pr = Math.max(0, Math.min(1, (elapsed - 35) / 70)); S.merge.spin += dt; }
         // 기 모으기 오라 (기 모으는 단계)
         if (S.cineStage === 1 || S.cineStage === 2) {
           const win = S.finishWin, hero = win ? p : c;
@@ -350,6 +371,8 @@ export default function MotionFighter() {
       if (S.slashes.length) S.slashes = S.slashes.filter((sl) => sl.life > 0);
       for (const ob of S.orbs) { ob.x += ob.vx * edt; ob.y += ob.vy * edt; ob.r += (ob.vx || ob.vy ? 55 : 135) * edt; ob.life -= edt; }
       if (S.orbs.length) S.orbs = S.orbs.filter((o) => o.life > 0);
+      for (const bo of S.bolts) bo.life -= edt;
+      if (S.bolts.length) S.bolts = S.bolts.filter((bo) => bo.life > 0);
       if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0 && S.combo !== 0) { S.combo = 0; setCombo(0); } }
 
       // 렌더
@@ -377,15 +400,25 @@ export default function MotionFighter() {
         ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ob.x, ob.y, ob.r, 0, 7); ctx.stroke();
       }
       ctx.globalAlpha = 1;
-      // 🔵+🔴 → 🟣 합체 연출 (파랑·빨강 구가 돌며 다가와 보라로 합쳐짐)
+      // 🔵+🔴 → 🟣 합체 연출 (돌며 다가와 보라로 합쳐지고, 보라 전기가 튐)
       if (S.merge.active && !S.merge.done) {
-        const pr = Math.min(1, S.merge.t / 2.6);
-        const off = 100 * (1 - pr) + 18, up = 55 * (1 - pr);
-        const spin = S.merge.t * 5;
-        glowOrb(ctx, S.merge.x - off * Math.abs(Math.cos(spin)) - 4, S.merge.y - up, 16, "#3b82f6");
-        glowOrb(ctx, S.merge.x + off * Math.abs(Math.cos(spin)) + 4, S.merge.y - up, 16, "#ef4444");
-        if (pr > 0.4) glowOrb(ctx, S.merge.x, S.merge.y, 6 + 28 * ((pr - 0.4) / 0.6), "#a855f7");
+        const pr = S.merge.pr;
+        const off = 105 * (1 - pr) + 18, up = 50 * (1 - pr);
+        const s = S.merge.spin * 4;
+        const bx = S.merge.x - off * Math.abs(Math.cos(s)) - 4, by = S.merge.y - up;
+        const rx = S.merge.x + off * Math.abs(Math.cos(s)) + 4, ry = S.merge.y - up;
+        glowOrb(ctx, bx, by, 16, "#3b82f6");
+        glowOrb(ctx, rx, ry, 16, "#ef4444");
+        if (pr > 0.35) glowOrb(ctx, S.merge.x, S.merge.y, 6 + 30 * ((pr - 0.35) / 0.65), "#a855f7");
+        if (pr > 0.2) {
+          ctx.globalAlpha = Math.min(1, (pr - 0.2) * 2);
+          const n = 1 + Math.floor(pr * 5);
+          for (let k = 0; k < n; k++) { drawBolt(ctx, bx, by, S.merge.x, S.merge.y, "#c084fc", 14); drawBolt(ctx, rx, ry, S.merge.x, S.merge.y, "#a855f7", 14); }
+          ctx.globalAlpha = 1;
+        }
       }
+      // ⚡ 발사 순간 방사 전기
+      for (const bo of S.bolts) { ctx.globalAlpha = Math.min(1, bo.life / 0.4); drawBolt(ctx, bo.x1, bo.y1, bo.x2, bo.y2, "#c084fc", 20); }
       ctx.globalAlpha = 1;
       // ⚡ 베기 궤적
       ctx.lineCap = "round";
