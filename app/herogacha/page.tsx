@@ -709,7 +709,7 @@ export default function HeroGachaPage() {
   useEffect(() => {
     if (!autoHunting) return;
     const HUNTS = 1; // 한 틱당 사냥 수 (1마리씩)
-    const SHARD_RATE = 20000000000; // 차원 조각 획득 배율 (200억배 빠르게)
+    const SHARD_RATE = 4000000; // 차원 조각 획득 배율 (400만배 — 200억에서 5000배 낮춤)
     const iv = setInterval(() => {
       const teamPower = [...collection.values()]
         .map(c => c.hero.power * (1 + (c.level - 1) * 0.2))
