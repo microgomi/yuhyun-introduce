@@ -116,6 +116,7 @@ export default function MotionFighter() {
     orbs: [] as { x: number; y: number; r: number; life: number; c: string; vx: number; vy: number }[],
   });
   const [combo, setCombo] = useState(0);
+  const [screenFlash, setScreenFlash] = useState(0); // 전체 화면 화이트 플래시 트리거
   const [airborne, setAirborne] = useState(false);
   const airborneRef = useRef(false);
   const [cine, setCine] = useState<{ active: boolean; line: string; loserLine: string; win: boolean; stage: number }>({ active: false, line: "", loserLine: "", win: false, stage: -1 });
@@ -361,7 +362,8 @@ export default function MotionFighter() {
               const sx = S.merge.x, sy = S.merge.y;
               if (S.selfD) {
                 // 💥 자폭! 천둥·번개 + 새하얀 섬광(1000% 밝기)
-                S.flash = 1.9; S.whiteFlash = 1.4; S.shake = 70; sKo(); sThunder();
+                S.flash = 1.9; S.whiteFlash = 3.0; S.shake = 70; sKo(); sThunder();
+                setScreenFlash((n) => n + 1); // 전체 화면 화이트 플래시
                 S.orbs.push({ x: sx, y: sy, r: 30, life: 2.6, c: "#a855f7", vx: 0, vy: 0 });
                 for (let i = 0; i < 260; i++) { const a2 = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 520; S.parts.push({ x: sx, y: sy, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 1.2 + Math.random() * 1.8, c: ["#a855f7", "#c084fc", "#fff", "#818cf8", "#e9d5ff"][i % 5] }); }
                 for (let i = 0; i < 54; i++) { const a2 = Math.random() * Math.PI * 2, ln = 120 + Math.random() * 260; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.7 }); }
@@ -619,6 +621,11 @@ export default function MotionFighter() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-slate-950 text-white flex flex-col items-center px-3 py-4">
+      {/* 💥 자폭 전체 화면 화이트 플래시 (1000% 밝기) */}
+      {screenFlash > 0 && (
+        <div key={screenFlash} className="fixed inset-0 z-[100] bg-white pointer-events-none mf-whiteflash" />
+      )}
+      <style>{`@keyframes mfWhite { 0%{opacity:1} 25%{opacity:0.6} 45%{opacity:1} 100%{opacity:0} } .mf-whiteflash { animation: mfWhite 1.1s ease-out forwards; }`}</style>
       <div className="w-full max-w-md">
         <div className="flex items-center justify-between mb-2">
           <Link href="/" className="text-purple-300 text-sm">← 홈</Link>
