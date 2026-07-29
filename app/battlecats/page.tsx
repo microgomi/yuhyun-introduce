@@ -237,6 +237,8 @@ export default function BattleCatsPage() {
   const nextUid = useRef(0);
   const spawnQueue = useRef<{ enemyId: string; spawnTick: number }[]>([]);
   const gameLoop = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bossSpawned = useRef(false); // 적 성 체력 절반 → 보스 등장 (한 번만)
+  const [bossWarning, setBossWarning] = useState(false);
 
   // 🎵 오리지널 전투 BGM (Web Audio, 외부 파일 없음)
   const [bgmOn, setBgmOn] = useState(true);
@@ -316,6 +318,8 @@ export default function BattleCatsPage() {
     setCannonCharge(0);
     setTick(0);
     nextUid.current = 0;
+    bossSpawned.current = false;
+    setBossWarning(false);
     setScreen("battle");
 
     // Build spawn queue
@@ -352,6 +356,21 @@ export default function BattleCatsPage() {
 
     // 대포 충전 (약 8초에 완충)
     setCannonCharge((c) => Math.min(100, c + 1.2));
+
+    // 적 성 체력 절반 → 보스 등장! (한 번만)
+    if (!bossSpawned.current && enemyBaseHp > 0 && enemyBaseHp <= enemyBaseMaxHp * 0.5) {
+      bossSpawned.current = true;
+      const bt = ENEMY_TYPES.find((e) => e.id === (currentStage.id >= 7 ? "boss_god" : "boss_king")) ?? ENEMY_TYPES[ENEMY_TYPES.length - 1];
+      const bHp = Math.floor(bt.hp * (1 + currentStage.id * 0.2));
+      const bAtk = Math.floor(bt.atk * (1 + currentStage.id * 0.12));
+      setUnits((prev) => [...prev, {
+        uid: nextUid.current++, typeId: bt.id, emoji: bt.emoji, x: 92,
+        hp: bHp, maxHp: bHp, atk: bAtk, range: bt.range, speed: bt.speed,
+        atkSpeed: bt.atkSpeed, atkTimer: 0, side: "enemy",
+      }]);
+      setBossWarning(true);
+      setTimeout(() => setBossWarning(false), 2600);
+    }
 
     // Spawn enemies
     const toSpawn = spawnQueue.current.filter((s) => s.spawnTick === tick);
@@ -751,6 +770,16 @@ export default function BattleCatsPage() {
             <div className="relative h-40 overflow-hidden rounded-2xl border-2 border-amber-300 bg-gradient-to-r from-green-200 via-green-100 to-red-100 dark:border-slate-700 dark:from-green-950 dark:via-slate-900 dark:to-red-950">
               {/* Ground */}
               <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-r from-green-400/30 to-red-400/30" />
+
+              {/* ⚠️ 보스 등장 경고 */}
+              {bossWarning && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-red-600/30 animate-pulse">
+                  <div className="rounded-xl bg-black/70 px-4 py-2 text-center">
+                    <div className="text-2xl font-black text-red-400 animate-bounce">⚠️ 보스 등장! ⚠️</div>
+                    <div className="text-[10px] text-red-200">적의 두목이 나타났다!</div>
+                  </div>
+                </div>
+              )}
 
               {/* Cat base */}
               <div className="absolute left-1 bottom-2 text-2xl">🏠</div>
