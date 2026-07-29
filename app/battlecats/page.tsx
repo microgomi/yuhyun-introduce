@@ -57,7 +57,7 @@ interface Stage {
   reward: number;
 }
 
-type Screen = "menu" | "stageSelect" | "battle" | "victory" | "defeat" | "gacha" | "gachaResult" | "upgrade";
+type Screen = "menu" | "stageSelect" | "battle" | "victory" | "defeat" | "gacha" | "gachaResult" | "upgrade" | "lineup";
 type GachaRarity = "rare" | "superRare" | "uber" | "legend";
 
 // --- Constants ---
@@ -233,6 +233,9 @@ export default function BattleCatsPage() {
   // 강화/레벨업: 경험치(XP) + 냥이별 레벨
   const [xp, setXp] = useState(0);
   const [catLevels, setCatLevels] = useState<Record<string, number>>({});
+  // 편성: 출전할 냥이 (최대 10)
+  const [lineup, setLineup] = useState<string[]>([]);
+  const MAX_LINEUP = 10;
 
   const nextUid = useRef(0);
   const spawnQueue = useRef<{ enemyId: string; spawnTick: number }[]>([]);
@@ -258,11 +261,12 @@ export default function BattleCatsPage() {
         setOwnedGachaCats(s.ownedGachaCats || []);
         setXp(s.xp || 0);
         setCatLevels(s.catLevels || {});
+        setLineup(s.lineup || []);
       }
     } catch { /* ignore */ }
   }, []);
 
-  const saveGame = useCallback((cleared: number[], tm: number, cf?: number, owned?: string[], xpVal?: number, levels?: Record<string, number>) => {
+  const saveGame = useCallback((cleared: number[], tm: number, cf?: number, owned?: string[], xpVal?: number, levels?: Record<string, number>, lineupVal?: string[]) => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       clearedStages: cleared,
       totalMoney: tm,
@@ -270,8 +274,9 @@ export default function BattleCatsPage() {
       ownedGachaCats: owned ?? ownedGachaCats,
       xp: xpVal ?? xp,
       catLevels: levels ?? catLevels,
+      lineup: lineupVal ?? lineup,
     }));
-  }, [catFood, ownedGachaCats, xp, catLevels]);
+  }, [catFood, ownedGachaCats, xp, catLevels, lineup]);
 
   // 🎵 전투 BGM 재생 (오리지널 멜로디, 전투 화면에서만)
   useEffect(() => {
@@ -573,8 +578,20 @@ export default function BattleCatsPage() {
     unlockStage: 0,
   }));
   const availableCats = [...CAT_TYPES.filter((c) => c.unlockStage <= clearedStages.length), ...gachaCatsAsCatType];
+  // 편성: 선택한 냥이만 전투에 출전 (미선택이면 앞 10마리 자동)
+  const battleCats = lineup.length > 0
+    ? availableCats.filter((c) => lineup.includes(c.id))
+    : availableCats.slice(0, MAX_LINEUP);
   const catUnits = units.filter((u) => u.side === "cat");
   const enemyUnits = units.filter((u) => u.side === "enemy");
+
+  const toggleLineup = (id: string) => {
+    const has = lineup.includes(id);
+    if (!has && lineup.length >= MAX_LINEUP) return; // 최대 10마리
+    const next = has ? lineup.filter((x) => x !== id) : [...lineup, id];
+    setLineup(next);
+    saveGame(clearedStages, totalMoney, undefined, undefined, undefined, undefined, next);
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-sky-100 via-green-50 to-amber-50 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-white">
@@ -622,6 +639,9 @@ export default function BattleCatsPage() {
             </button>
             <button onClick={() => setScreen("upgrade")} className="w-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 py-4 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
               💪 냥이 강화! ({xp}🎫)
+            </button>
+            <button onClick={() => setScreen("lineup")} className="w-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 py-4 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
+              🧩 편성 ({lineup.length > 0 ? lineup.length : Math.min(availableCats.length, MAX_LINEUP)}/{MAX_LINEUP})
             </button>
             <Link href="/" className="block w-full rounded-full border-2 border-amber-300 bg-white/80 dark:bg-slate-800/80 py-3 text-center text-sm font-bold text-amber-600 dark:text-amber-400 transition-transform hover:scale-105 active:scale-95">
               🏠 소개페이지로
@@ -842,7 +862,7 @@ export default function BattleCatsPage() {
 
             {/* Cat deploy buttons */}
             <div className="grid grid-cols-5 gap-1.5">
-              {availableCats.map((cat) => {
+              {battleCats.map((cat) => {
                 const cd = cooldowns[cat.id] ?? 0;
                 const canDeploy = money >= cat.cost && cd === 0;
                 return (
@@ -1081,6 +1101,52 @@ export default function BattleCatsPage() {
                       {maxed ? "MAX" : `▲Lv.${lvl + 1} · 🎫${cost}`}
                     </button>
                   </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* === LINEUP (편성) === */}
+        {screen === "lineup" && (
+          <div className="w-full max-w-md space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-black">🧩 편성</h2>
+              <button onClick={() => setScreen("menu")} className="text-sm text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-white">뒤로</button>
+            </div>
+            <div className="rounded-xl bg-sky-100 dark:bg-sky-950/40 p-3 text-center text-sm font-bold text-sky-700 dark:text-sky-300">
+              출전할 냥이를 최대 {MAX_LINEUP}마리 골라요! ({lineup.length}/{MAX_LINEUP})
+              <p className="text-[10px] font-normal text-slate-500 dark:text-slate-400">고르지 않으면 앞에서부터 자동 편성돼요</p>
+            </div>
+            {lineup.length > 0 && (
+              <button onClick={() => { setLineup([]); saveGame(clearedStages, totalMoney, undefined, undefined, undefined, undefined, []); }}
+                className="w-full rounded-lg bg-slate-200 dark:bg-slate-800 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">
+                편성 초기화 (자동 편성으로)
+              </button>
+            )}
+            <div className="grid grid-cols-4 gap-2">
+              {availableCats.map((cat) => {
+                const picked = lineup.includes(cat.id);
+                const lvl = catLevels[cat.id] ?? 1;
+                const disabled = !picked && lineup.length >= MAX_LINEUP;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => toggleLineup(cat.id)}
+                    disabled={disabled}
+                    className={`relative rounded-xl border-2 p-2 text-center transition-all active:scale-90 ${
+                      picked
+                        ? "border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/40 ring-2 ring-sky-300"
+                        : disabled
+                        ? "border-gray-200 bg-gray-100 opacity-40 dark:border-slate-800 dark:bg-slate-900"
+                        : "border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800"
+                    }`}
+                  >
+                    {picked && <span className="absolute -top-1.5 -right-1.5 rounded-full bg-sky-500 px-1 text-[9px] font-black text-white">{lineup.indexOf(cat.id) + 1}</span>}
+                    <span className="text-2xl">{cat.emoji}</span>
+                    <p className="text-[8px] font-bold truncate">{cat.name}</p>
+                    <p className="text-[8px] text-emerald-500">Lv.{lvl}</p>
+                  </button>
                 );
               })}
             </div>
