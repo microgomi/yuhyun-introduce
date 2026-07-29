@@ -217,6 +217,19 @@ for (let n = 12; n <= 50; n++) {
   };
 }
 
+// 🌌 초비밀 이벤트 숨김 표식 9개 (2~10단계) — 각 심볼/필요 탭수/색
+const MEGA_MARKS: { sym: string; need: number; color: string }[] = [
+  { sym: "✦", need: 7, color: "text-indigo-300/30 hover:text-indigo-200" },
+  { sym: "✧", need: 3, color: "text-cyan-300/40 hover:text-cyan-100" },
+  { sym: "★", need: 5, color: "text-yellow-300/30 hover:text-yellow-100" },
+  { sym: "☆", need: 4, color: "text-pink-300/30 hover:text-pink-100" },
+  { sym: "❈", need: 6, color: "text-emerald-300/30 hover:text-emerald-100" },
+  { sym: "❉", need: 3, color: "text-fuchsia-300/30 hover:text-fuchsia-100" },
+  { sym: "✺", need: 5, color: "text-orange-300/30 hover:text-orange-100" },
+  { sym: "✹", need: 4, color: "text-sky-300/30 hover:text-sky-100" },
+  { sym: "❋", need: 8, color: "text-violet-300/30 hover:text-violet-100" },
+];
+
 /* ───── 컬렉션 히어로 ───── */
 interface CollectedHero {
   hero: HeroDef;
@@ -470,12 +483,10 @@ export default function HeroGachaPage() {
   const [scienceOpen, setScienceOpen] = useState(false); // 과학 퀴즈 모달
   const [secretClicks, setSecretClicks] = useState(0); // 비밀 이벤트 (로고 7번)
   const [secretUnlocked, setSecretUnlocked] = useState(false);
-  // 🌌 초비밀 이벤트 — 5단계 숨김 잠금 (더 꼼꼼히!)
-  const [megaHint, setMegaHint] = useState(false);   // 1단계: 로고 30번 → ✦ 표식 등장
-  const [megaTaps, setMegaTaps] = useState(0);       // 2단계: ✦ 표식 7번 탭
-  const [mega2, setMega2] = useState(false);         // 3단계: ✧ 두 번째 표식 등장
-  const [mega2Taps, setMega2Taps] = useState(0);     // 4단계: ✧ 표식 3번 탭
-  const [megaAsk, setMegaAsk] = useState(false);     // 5단계: 2중 암호 입력
+  // 🌌 초비밀 이벤트 — 12단계 숨김 잠금 (아주 꼼꼼히!)
+  // 1단계: 로고 30번 → 2~10단계: 숨김 표식 9개(각 탭 수) → 11단계: 1차 암호 → 12단계: 2차 암호
+  const [megaStage, setMegaStage] = useState(0); // 0=잠김, 1~9=표식, 10=1차암호, 11=2차암호
+  const [megaTaps, setMegaTaps] = useState(0);   // 현재 표식 탭 수
   const MEGA_MULT = 1000000000000000000000000; // 5경 × 2천만 = 1자배
   const [w2Cleared, setW2Cleared] = useState<Set<string>>(new Set());
   const [w2Log, setW2Log] = useState<string[]>([]);
@@ -1053,7 +1064,7 @@ export default function HeroGachaPage() {
 
           <div className="text-center mb-6">
             <div className="text-6xl mb-2 cursor-pointer select-none"
-              onClick={() => setSecretClicks(c => { const n = c + 1; if (n >= 7) setSecretUnlocked(true); if (n >= 30) setMegaHint(true); return n; })}>🎰</div>
+              onClick={() => setSecretClicks(c => { const n = c + 1; if (n >= 7) setSecretUnlocked(true); if (n >= 30) setMegaStage(s => s === 0 ? 1 : s); return n; })}>🎰</div>
             <h1 className="text-3xl font-black mb-1">히어로 뽑기</h1>
             <p className="text-purple-300 text-sm">최강의 히어로를 모아라!</p>
           </div>
@@ -1066,50 +1077,59 @@ export default function HeroGachaPage() {
             </button>
           )}
 
-          {/* 🌌 초비밀 이벤트 (1자배) — 5단계: 로고30번 → ✦7탭 → ✧3탭 → 2중 암호 */}
-          {/* 2단계: 첫 번째 숨김 표식 ✦ (7번 탭) */}
-          {megaHint && !mega2 && !megaAsk && (
-            <div className="mb-3 text-center">
-              <span
-                onClick={() => setMegaTaps(t => { const n = t + 1; if (n >= 7) setMega2(true); return n; })}
-                className="cursor-pointer select-none text-lg text-indigo-300/30 hover:text-indigo-200 transition-colors"
-                title="???">
-                ✦ {megaTaps > 0 && megaTaps < 7 ? `${megaTaps}/7` : ""}
-              </span>
-            </div>
-          )}
-          {/* 4단계: 두 번째 숨김 표식 ✧ (3번 탭) */}
-          {mega2 && !megaAsk && (
-            <div className="mb-3 text-center">
-              <span
-                onClick={() => setMega2Taps(t => { const n = t + 1; if (n >= 3) setMegaAsk(true); return n; })}
-                className="cursor-pointer select-none text-xl text-cyan-300/40 hover:text-cyan-100 transition-colors"
-                title="?!?">
-                ✧ {mega2Taps > 0 && mega2Taps < 3 ? `${mega2Taps}/3` : ""}
-              </span>
-            </div>
-          )}
-          {/* 5단계: 2중 암호 */}
-          {megaAsk && (
+          {/* 🌌 초비밀 이벤트 (1자배) — 12단계: 로고30번 → 숨김표식 9개 → 2중 암호 */}
+          {/* 2~10단계: 숨김 표식 9개 (megaStage 1~9) */}
+          {megaStage >= 1 && megaStage <= 9 && (() => {
+            const mark = MEGA_MARKS[megaStage - 1];
+            return (
+              <div className="mb-3 text-center">
+                <span
+                  onClick={() => setMegaTaps(t => {
+                    const n = t + 1;
+                    if (n >= mark.need) { setMegaStage(s => s + 1); return 0; }
+                    return n;
+                  })}
+                  className={`cursor-pointer select-none text-xl transition-colors ${mark.color}`}
+                  title="???">
+                  {mark.sym} {megaTaps > 0 ? `${megaTaps}/${mark.need}` : ""}
+                </span>
+                <div className="text-[9px] text-white/20 mt-0.5">({megaStage + 1}/12 단계)</div>
+              </div>
+            );
+          })()}
+          {/* 11단계: 1차 암호 */}
+          {megaStage === 10 && (
             <button
               onClick={() => {
-                const pw1 = window.prompt("🌌 1차 암호를 입력하세요\n(힌트: 5경의 한국어 단위 — '?경')");
+                const pw1 = window.prompt("🌌 11단계 · 1차 암호를 입력하세요\n(힌트: 5경의 한국어 단위 — '?경')");
                 if (pw1 === null) return;
-                if (!["5경", "오경", "50000000000000000"].includes(pw1.trim())) {
-                  window.alert("❌ 1차 암호가 틀렸어요! (힌트: 5경의 '경')"); return;
+                if (["5경", "오경", "50000000000000000"].includes(pw1.trim())) {
+                  setMegaStage(11);
+                  window.alert("🔓 1차 암호 통과! 마지막 12단계로!");
+                } else {
+                  window.alert("❌ 1차 암호가 틀렸어요! (힌트: 5경의 '경')");
                 }
-                const pw2 = window.prompt("🔓 1차 통과! 2차 암호를 입력하세요\n(힌트: 5경보다 1만배 큰 '조·경·해' 다음 단위 — 한 글자)");
-                if (pw2 === null) return;
-                if (!["자", "秭", "1자", "일자"].includes(pw2.trim())) {
-                  window.alert("❌ 2차 암호가 틀렸어요! (힌트: 경 → 해 → '자')"); return;
-                }
-                startEvent(MEGA_MULT, 5);
-                window.alert("🌌🎉 초초비밀 이벤트 해금!!\n1자(1,000,000,000,000,000,000,000,000)배 이벤트 시작! (5분)");
-                setMegaHint(false); setMega2(false); setMegaAsk(false);
-                setMegaTaps(0); setMega2Taps(0); setSecretClicks(0);
               }}
-              className="w-full mb-3 rounded-xl p-3 font-black bg-gradient-to-r from-indigo-600 via-cyan-300 to-indigo-600 text-slate-900 animate-pulse border-2 border-cyan-200/80">
-              🌌 초초비밀 이벤트?! 2중 암호 입력 (1자배 · 5분)
+              className="w-full mb-3 rounded-xl p-3 font-black bg-gradient-to-r from-indigo-700 via-purple-400 to-indigo-700 text-slate-900 animate-pulse border-2 border-purple-200/80">
+              🔐 11단계 · 1차 암호 입력
+            </button>
+          )}
+          {/* 12단계: 2차 암호 → 이벤트 시작 */}
+          {megaStage === 11 && (
+            <button
+              onClick={() => {
+                const pw2 = window.prompt("🌌 12단계 · 2차 암호를 입력하세요\n(힌트: 조·경·해 다음 단위 — 한 글자)");
+                if (pw2 === null) return;
+                if (["자", "秭", "1자", "일자"].includes(pw2.trim())) {
+                  startEvent(MEGA_MULT, 5);
+                  window.alert("🌌🎉 초초비밀 이벤트 해금!! (12단계 클리어!)\n1자(1,000,000,000,000,000,000,000,000)배 이벤트 시작! (5분)");
+                  setMegaStage(0); setMegaTaps(0); setSecretClicks(0);
+                } else {
+                  window.alert("❌ 2차 암호가 틀렸어요! (힌트: 경 → 해 → '자')");
+                }
+              }}
+              className="w-full mb-3 rounded-xl p-3 font-black bg-gradient-to-r from-cyan-500 via-yellow-200 to-cyan-500 text-slate-900 animate-pulse border-2 border-yellow-200/90">
+              🌌 12단계 · 2차 암호 입력 → 1자배 이벤트!
             </button>
           )}
 
