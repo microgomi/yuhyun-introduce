@@ -60,12 +60,21 @@ function glowOrb(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
   gr.addColorStop(0, "#ffffff"); gr.addColorStop(0.45, c); gr.addColorStop(1, c + "00");
   ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.fill();
 }
-// ⚡ 전기(번개) 지그재그 선
-function drawBolt(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, jag = 16) {
-  const seg = 5;
-  ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(x1, y1);
-  for (let i = 1; i < seg; i++) { const t = i / seg; ctx.lineTo(x1 + (x2 - x1) * t + (Math.random() - 0.5) * jag, y1 + (y2 - y1) * t + (Math.random() - 0.5) * jag); }
-  ctx.lineTo(x2, y2); ctx.stroke();
+// ⚡ 전기(번개) 지그재그 선 — 보라 글로우 + 흰 코어, 잔가지까지
+function drawBolt(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, jag = 22, w = 3) {
+  const seg = 7;
+  const pts: [number, number][] = [[x1, y1]];
+  for (let i = 1; i < seg; i++) { const t = i / seg; pts.push([x1 + (x2 - x1) * t + (Math.random() - 0.5) * jag, y1 + (y2 - y1) * t + (Math.random() - 0.5) * jag]); }
+  pts.push([x2, y2]);
+  const path = () => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke(); };
+  ctx.lineCap = "round";
+  ctx.strokeStyle = color; ctx.lineWidth = w * 3; path();   // 굵은 글로우
+  ctx.strokeStyle = "#e9d5ff"; ctx.lineWidth = w * 1.5; path();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(1, w * 0.6); path(); // 밝은 코어
+  // 잔가지 (스파크)
+  for (let i = 1; i < pts.length - 1; i++) {
+    if (Math.random() < 0.5) { const [bxp, byp] = pts[i]; ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(bxp, byp); ctx.lineTo(bxp + (Math.random() - 0.5) * jag * 1.4, byp + (Math.random() - 0.5) * jag * 1.4); ctx.stroke(); }
+  }
 }
 
 function limbTip(f: Fighter, dir: number, kind: Kind, ext: number) {
@@ -314,7 +323,7 @@ export default function MotionFighter() {
               const dx = loser.x - sx, dy = (HEAD_Y + loser.yOff) - sy, d = Math.hypot(dx, dy) || 1;
               S.orbs.push({ x: sx, y: sy, r: 26, life: 2.4, c: "#a855f7", vx: dx / d * 150, vy: dy / d * 150 });
               for (let i = 0; i < 130; i++) { const a2 = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: sx, y: sy, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp, life: 1 + Math.random() * 1.4, c: ["#a855f7", "#c084fc", "#fff", "#818cf8"][i % 4] }); }
-              for (let i = 0; i < 16; i++) { const a2 = Math.random() * Math.PI * 2, ln = 70 + Math.random() * 130; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.4 }); }
+              for (let i = 0; i < 32; i++) { const a2 = Math.random() * Math.PI * 2, ln = 90 + Math.random() * 190; S.bolts.push({ x1: sx, y1: sy, x2: sx + Math.cos(a2) * ln, y2: sy + Math.sin(a2) * ln, life: 0.55 }); }
               S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "🟣 보랏빛 소멸!!", life: 1.6, big: true });
             } else if (!(win && md.finisher === "orb")) {
               // ⚔️ 참격 즉시 발동! 대폭발
@@ -409,16 +418,20 @@ export default function MotionFighter() {
         const rx = S.merge.x + off * Math.abs(Math.cos(s)) + 4, ry = S.merge.y - up;
         glowOrb(ctx, bx, by, 16, "#3b82f6");
         glowOrb(ctx, rx, ry, 16, "#ef4444");
-        if (pr > 0.35) glowOrb(ctx, S.merge.x, S.merge.y, 6 + 30 * ((pr - 0.35) / 0.65), "#a855f7");
-        if (pr > 0.2) {
-          ctx.globalAlpha = Math.min(1, (pr - 0.2) * 2);
-          const n = 1 + Math.floor(pr * 5);
-          for (let k = 0; k < n; k++) { drawBolt(ctx, bx, by, S.merge.x, S.merge.y, "#c084fc", 14); drawBolt(ctx, rx, ry, S.merge.x, S.merge.y, "#a855f7", 14); }
+        if (pr > 0.35) glowOrb(ctx, S.merge.x, S.merge.y, 8 + 34 * ((pr - 0.35) / 0.65), "#a855f7");
+        if (pr > 0.15) {
+          // 보라 화면 글로우 (셀수록 강하게)
+          ctx.globalAlpha = Math.min(0.28, pr * 0.3); ctx.fillStyle = "#7c3aed"; ctx.fillRect(-30, -30, W + 60, H + 60);
+          ctx.globalAlpha = Math.min(1, (pr - 0.15) * 2);
+          const n = 3 + Math.floor(pr * 12);
+          for (let k = 0; k < n; k++) { drawBolt(ctx, bx, by, S.merge.x, S.merge.y, "#c084fc", 20, 3); drawBolt(ctx, rx, ry, S.merge.x, S.merge.y, "#a855f7", 20, 3); }
+          if (pr > 0.4) for (let k = 0; k < 2 + Math.floor(pr * 5); k++) drawBolt(ctx, bx, by, rx, ry, "#c084fc", 26, 2.5); // 두 구 사이
+          if (pr > 0.55) for (let k = 0; k < Math.floor(pr * 8); k++) { const a = Math.random() * Math.PI * 2, ln = 40 + Math.random() * 90 * pr; drawBolt(ctx, S.merge.x, S.merge.y, S.merge.x + Math.cos(a) * ln, S.merge.y + Math.sin(a) * ln, "#a855f7", 18, 2.5); } // 방사
           ctx.globalAlpha = 1;
         }
       }
-      // ⚡ 발사 순간 방사 전기
-      for (const bo of S.bolts) { ctx.globalAlpha = Math.min(1, bo.life / 0.4); drawBolt(ctx, bo.x1, bo.y1, bo.x2, bo.y2, "#c084fc", 20); }
+      // ⚡ 발사 순간 방사 전기 (강력)
+      for (const bo of S.bolts) { ctx.globalAlpha = Math.min(1, bo.life / 0.4); drawBolt(ctx, bo.x1, bo.y1, bo.x2, bo.y2, "#c084fc", 26, 4); }
       ctx.globalAlpha = 1;
       // ⚡ 베기 궤적
       ctx.lineCap = "round";
