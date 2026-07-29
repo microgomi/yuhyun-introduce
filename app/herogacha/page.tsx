@@ -237,7 +237,7 @@ interface CollectedHero {
   level: number;
 }
 
-type Screen = "main" | "pull" | "result" | "collection" | "battle" | "auto" | "world2" | "world3" | "world4" | "worldX" | "w2battle" | "raid";
+type Screen = "main" | "pull" | "result" | "collection" | "battle" | "auto" | "world2" | "world3" | "world4" | "worldX" | "w2battle" | "raid" | "ending";
 interface RaidView { bossName: string; bossEmoji: string; bossHp: number; bossMax: number; round: number; players: { name: string; damage: number }[]; log: string[] }
 const WORLD3_COST = 10000000; // 3세계 소환 비용
 const WORLD4_COST = 100000000; // 4세계 소환 비용
@@ -1524,9 +1524,72 @@ export default function HeroGachaPage() {
             boss={boss}
             teamPower={teamPower}
             team={sortedTeam.map(t => ({ emoji: t.emoji, name: t.name }))}
-            onWin={() => { w2Reward(boss); setScreen(battleReturn); }}
+            onWin={() => { w2Reward(boss); if (boss.id === "dim50") { setScreen("ending"); } else { setScreen(battleReturn); } }}
             onFail={() => { setW2Log(l => [`💔 ${boss.emoji} ${boss.name} 전투 패배...`, ...l].slice(0, 8)); setScreen(battleReturn); }}
           />
+        </div>
+      </div>
+    );
+  }
+
+  // 🎬 엔딩 (50차원 종말군주 격파 시)
+  if (screen === "ending") {
+    const collected = collection.size;
+    const total = HEROES.length;
+    const strongest = [...collection.values()].sort((a, b) => (b.hero.power * b.level) - (a.hero.power * a.level))[0];
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-black via-indigo-950 to-black text-white p-4 overflow-hidden relative">
+        {/* 반짝이는 별 배경 */}
+        <div className="pointer-events-none absolute inset-0 opacity-40">
+          {["✨", "⭐", "💫", "🌟", "✦", "🌠"].map((s, i) => (
+            <span key={i} className="absolute animate-pulse" style={{ left: `${(i * 37 + 10) % 90}%`, top: `${(i * 53 + 8) % 90}%`, fontSize: `${12 + (i % 3) * 8}px`, animationDelay: `${i * 0.4}s` }}>{s}</span>
+          ))}
+        </div>
+        <div className="max-w-md mx-auto relative z-10 py-8">
+          <div className="text-center mb-6">
+            <div className="text-7xl mb-3 animate-bounce">👑</div>
+            <h1 className="text-4xl font-black bg-gradient-to-r from-yellow-300 via-pink-300 to-cyan-300 bg-clip-text text-transparent mb-1">– THE END –</h1>
+            <p className="text-yellow-200 text-sm font-bold">🎉 모든 차원을 정복했습니다! 🎉</p>
+          </div>
+
+          {/* 스토리 */}
+          <div className="rounded-2xl bg-black/50 border border-indigo-400/40 p-5 mb-5 space-y-3 text-sm leading-relaxed text-indigo-100">
+            <p>동네 아저씨와 길고양이로 시작한 여정이었습니다.</p>
+            <p>작은 히어로들을 모으고, 강해지고, 세계를 넘고 또 넘어…</p>
+            <p>마침내 <b className="text-cyan-300">50차원의 종말군주</b>를 쓰러뜨리고, 모든 차원에 평화가 찾아왔습니다.</p>
+            <p className="text-pink-200 font-bold">당신은 이제 <b className="text-yellow-300">모든 차원의 진정한 영웅</b>입니다! 👑✨</p>
+          </div>
+
+          {/* 최종 기록 */}
+          <div className="rounded-2xl bg-indigo-900/40 border border-purple-400/40 p-4 mb-5">
+            <h3 className="text-center text-sm font-black text-purple-200 mb-3">📜 나의 모험 기록</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-black/30 p-2 text-center"><div className="text-yellow-300 font-black text-lg">{collected}/{total}</div><div className="text-gray-400">모은 히어로</div></div>
+              <div className="rounded-lg bg-black/30 p-2 text-center"><div className="text-cyan-300 font-black text-lg">{totalPulls.toLocaleString()}</div><div className="text-gray-400">총 뽑기</div></div>
+              <div className="rounded-lg bg-black/30 p-2 text-center"><div className="text-red-300 font-black text-lg">{autoKills.toLocaleString()}</div><div className="text-gray-400">사냥한 적</div></div>
+              <div className="rounded-lg bg-black/30 p-2 text-center"><div className="text-green-300 font-black text-lg">50</div><div className="text-gray-400">정복한 차원</div></div>
+            </div>
+            {strongest && (
+              <div className="mt-3 rounded-lg bg-gradient-to-r from-yellow-600/30 to-orange-600/30 p-2 text-center text-xs">
+                🏆 최강의 파트너: <b className="text-yellow-200">{strongest.hero.emoji} {strongest.hero.name}</b> (Lv.{strongest.level})
+              </div>
+            )}
+          </div>
+
+          {/* 크레딧 */}
+          <div className="text-center text-xs text-gray-400 mb-6 space-y-1">
+            <p>🎮 히어로 뽑기</p>
+            <p>제작 · 기획 · 플레이 — <b className="text-white">진유현</b></p>
+            <p className="text-gray-500">함께 해줘서 고마워요 💛</p>
+          </div>
+
+          <div className="space-y-2">
+            <button onClick={() => setScreen("main")}
+              className="w-full rounded-xl p-3 font-black bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 border-2 border-white/40">
+              🏠 계속 플레이하기 (모험은 계속된다!)
+            </button>
+            <Link href="/" className="block text-center text-purple-300 text-sm py-2">← 홈으로</Link>
+          </div>
         </div>
       </div>
     );
