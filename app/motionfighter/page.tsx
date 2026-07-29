@@ -308,10 +308,10 @@ export default function MotionFighter() {
           S.winMode = pWon ? modeRef.current : (twoPRef.current ? mode2Ref.current : "crimson"); // 이긴 쪽 모드
           const orbWin = MODES[S.winMode].finisher === "orb";
           S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
-          // 전부 25초컷: 합체(orb)·자폭·참격(slash) 모두 25초
-          if (S.selfD) { S.stageT = [3, 6, 20, 21, 22, 23]; S.total = 25; }
-          else if (orbWin) { S.stageT = [3, 6, 21, 22, 23, 24]; S.total = 25; }
-          else { S.stageT = [3, 6, 21, 22, 23, 24]; S.total = 25; } // 참격 25초컷
+          // 필살기 발사(3) 후 2초 만에 끝 (여파·마무리·결과를 2초로 압축)
+          if (S.selfD) { S.stageT = [3, 6, 20, 20.6, 21.2, 21.6]; S.total = 22; }
+          else if (orbWin) { S.stageT = [3, 6, 21, 21.6, 22.2, 22.6]; S.total = 23; }
+          else { S.stageT = [3, 6, 21, 21.6, 22.2, 22.6]; S.total = 23; } // 참격
           S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
           S.finish = S.total; S.finishWin = pWon; S.cineStage = -1;
           const loser = pWon ? c : p;
