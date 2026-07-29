@@ -194,8 +194,12 @@ const GAMES: GameDef[] = [
   { name: "메타버스 풀다이브 VR", emoji: "🕶️", required: 400, optimal: 650, ultra: 950, cpuWeight: 0.4, gpuWeight: 0.6, ramMin: 6, storageHelp: true, resolution: "16K VR", desc: "양안 16K, 인간 시각 한계 초월" },
   { name: "실시간 우주 시뮬레이션", emoji: "🌌", required: 600, optimal: 1000, ultra: 1500, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 7, storageHelp: true, resolution: "∞K", desc: "은하 1000억개 실시간 물리 연산" },
   { name: "⚠️ E̷R̷R̷O̷R̷ 게임 ⚠️", emoji: "👾", required: 1000, optimal: 1800, ultra: 2800, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 7, storageHelp: true, resolution: "현실붕괴", desc: "존재하면 안 되는 게임. 오류 PC만 실행 가능." },
-  // ✨ 초월 게임 (신 등급 부품이라야 실행 가능 — 요구 성능 100만)
+  // ✨ 초월 게임 5종 (신 등급 부품이라야 실행 가능 — 요구 성능 100만 이상)
   { name: "✨ 초월 게임 ✨", emoji: "🌟", required: 1000000, optimal: 1500000, ultra: 2000000, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 9, storageHelp: true, resolution: "신의영역", desc: "요구 성능 1,000,000. 오직 신(GOD) 등급 PC만이 실행할 수 있다." },
+  { name: "🌌 우주 창조 시뮬레이터", emoji: "🌌", required: 1500000, optimal: 2200000, ultra: 3000000, cpuWeight: 0.55, gpuWeight: 0.45, ramMin: 9, storageHelp: true, resolution: "초월", desc: "빅뱅부터 우주 종말까지 실시간 창조. 신만이 다룬다." },
+  { name: "🧠 전지전능 시뮬레이션", emoji: "🧠", required: 2000000, optimal: 3000000, ultra: 4000000, cpuWeight: 0.6, gpuWeight: 0.4, ramMin: 9, storageHelp: true, resolution: "초월", desc: "모든 존재의 생각을 동시에 연산. 전지전능 체험." },
+  { name: "♾️ 무한 차원 렌더링", emoji: "♾️", required: 3000000, optimal: 4500000, ultra: 6000000, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 9, storageHelp: true, resolution: "∞차원", desc: "무한한 평행우주를 동시에 그려낸다. 렌더=창조." },
+  { name: "👑 신들의 전쟁", emoji: "👑", required: 5000000, optimal: 7500000, ultra: 10000000, cpuWeight: 0.5, gpuWeight: 0.5, ramMin: 9, storageHelp: true, resolution: "신계", desc: "모든 신이 격돌하는 최종 전쟁. 궁극의 초월 게임." },
 ];
 
 /* ───── 현실적 성능 계산 ───── */
