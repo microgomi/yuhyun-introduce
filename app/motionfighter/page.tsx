@@ -307,7 +307,7 @@ export default function MotionFighter() {
           const pWon = c.hp <= 0;
           S.winMode = pWon ? modeRef.current : (twoPRef.current ? mode2Ref.current : "crimson"); // 이긴 쪽 모드
           const orbWin = MODES[S.winMode].finisher === "orb";
-          S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
+          S.selfD = orbWin && Math.random() < 0.5; // 50% 확률 자폭
           // 필살기 발사(3) 후 2초 만에 끝 (여파·마무리·결과를 2초로 압축)
           if (S.selfD) { S.stageT = [3, 6, 20, 20.6, 21.2, 21.6]; S.total = 22; }
           else if (orbWin) { S.stageT = [3, 6, 21, 21.6, 22.2, 22.6]; S.total = 23; }
