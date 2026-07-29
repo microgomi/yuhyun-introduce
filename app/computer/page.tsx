@@ -316,10 +316,137 @@ interface Cutscene {
   message: string;
 }
 
-type Screen = "main" | "shop" | "build" | "test";
+type Screen = "main" | "shop" | "build" | "test" | "play";
+
+/* ───── 실제 플레이 미니게임 (떨어지는 아이템 받기 — FPS만큼 부드럽게/렉걸리게) ───── */
+function PlayGame({ gameName, emoji, fps, onExit }: { gameName: string; emoji: string; fps: number; onExit: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [score, setScore] = useState(0);
+  const [missed, setMissed] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(20);
+  const [over, setOver] = useState(false);
+  const [round, setRound] = useState(0);
+  const stateRef = useRef({
+    paddleX: 150, targetX: 150,
+    items: [] as { x: number; y: number; vy: number; kind: number }[],
+    spawnAcc: 0, score: 0, missed: 0,
+  });
+  // 실제 프레임레이트 = 테스트로 나온 FPS (렉 체감!). 최소 4, 최대 60으로 제한.
+  const playFps = Math.max(4, Math.min(Math.round(fps) || 4, 60));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const W = canvas.width, H = canvas.height;
+    const st = stateRef.current;
+    st.paddleX = W / 2; st.targetX = W / 2; st.items = []; st.spawnAcc = 0; st.score = 0; st.missed = 0;
+    let raf = 0, last = -1, startT = -1, finished = false;
+    const frameMs = 1000 / playFps;
+    const ITEMS = [emoji, "🪙", "💎", "⭐", "🎮"];
+
+    const move = (clientX: number) => {
+      const rect = canvas.getBoundingClientRect();
+      st.targetX = ((clientX - rect.left) / rect.width) * W;
+    };
+    const onMouse = (e: MouseEvent) => move(e.clientX);
+    const onTouch = (e: TouchEvent) => { if (e.touches[0]) move(e.touches[0].clientX); };
+    canvas.addEventListener("mousemove", onMouse);
+    canvas.addEventListener("touchmove", onTouch, { passive: true });
+
+    const loop = (t: number) => {
+      raf = requestAnimationFrame(loop);
+      if (startT < 0) startT = t;
+      if (last >= 0 && t - last < frameMs) return; // FPS 게이트: 낮으면 뚝뚝 끊김
+      last = t;
+
+      // 시간
+      const elapsed = (t - startT) / 1000;
+      const remain = Math.max(0, 20 - elapsed);
+      setTimeLeft(Math.ceil(remain));
+      if (remain <= 0 && !finished) { finished = true; setOver(true); cancelAnimationFrame(raf); return; }
+
+      // 패들 따라가기 (프레임마다만 갱신 → 낮은 fps면 조작도 렉)
+      st.paddleX += (st.targetX - st.paddleX) * 0.4;
+
+      // 스폰
+      st.spawnAcc += 1;
+      const spawnEvery = Math.max(6, Math.floor(playFps * 0.5));
+      if (st.spawnAcc >= spawnEvery) {
+        st.spawnAcc = 0;
+        st.items.push({ x: 20 + Math.random() * (W - 40), y: -20, vy: 3 + Math.random() * 3, kind: Math.floor(Math.random() * ITEMS.length) });
+      }
+
+      // 아이템 이동 (프레임당 고정 이동 → 낮은 fps면 뚝뚝 순간이동)
+      const paddleY = H - 30, pw = 46;
+      for (const it of st.items) {
+        it.y += it.vy * 2;
+        if (it.y >= paddleY - 6 && it.y <= paddleY + 20 && Math.abs(it.x - st.paddleX) < pw) {
+          it.y = H + 999; st.score += 1; setScore(st.score);
+        } else if (it.y > H + 10 && it.y < H + 900) {
+          it.y = H + 999; st.missed += 1; setMissed(st.missed);
+        }
+      }
+      st.items = st.items.filter(it => it.y < H + 50);
+
+      // 렌더
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = "#0b1120"; ctx.fillRect(0, 0, W, H);
+      ctx.font = "26px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      for (const it of st.items) if (it.y < H + 40) ctx.fillText(ITEMS[it.kind], it.x, it.y);
+      // 바구니
+      ctx.font = "34px serif"; ctx.fillText("🧺", st.paddleX, paddleY + 4);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => { cancelAnimationFrame(raf); canvas.removeEventListener("mousemove", onMouse); canvas.removeEventListener("touchmove", onTouch); };
+  }, [playFps, emoji, round]);
+
+  const laggy = playFps < 20;
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-black text-white p-4">
+      <div className="max-w-md mx-auto">
+        <div className="flex items-center justify-between mb-2">
+          <button onClick={onExit} className="text-green-300 text-sm">← 그만하기</button>
+          <h2 className="text-lg font-black truncate px-2">{emoji} {gameName}</h2>
+          <span className="text-xs text-gray-400">{playFps}fps</span>
+        </div>
+        <div className="flex justify-between text-sm font-bold mb-2 px-1">
+          <span className="text-yellow-300">🪙 받음 {score}</span>
+          <span className="text-red-300">놓침 {missed}</span>
+          <span className="text-cyan-300">⏱️ {timeLeft}초</span>
+        </div>
+        <div className="relative rounded-xl overflow-hidden border-2 border-green-500/40">
+          <canvas ref={canvasRef} width={340} height={440} className="w-full touch-none cursor-pointer bg-slate-900" />
+          {over && (
+            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 text-center p-4">
+              <div className="text-4xl">{score >= 20 ? "🏆" : score >= 10 ? "🎉" : "🙂"}</div>
+              <div className="text-2xl font-black text-yellow-300">최종 점수 {score}점!</div>
+              <div className="text-sm text-gray-300">받음 {score} · 놓침 {missed}</div>
+              <div className="text-xs text-gray-400 mt-1">
+                {playFps >= 60 ? "부드럽게 잘 돌아갔죠? 최고 사양! 👑" :
+                 playFps >= 30 ? "꽤 할 만했어요! 좋은 PC네요 👍" :
+                 playFps >= 15 ? "좀 렉이 걸렸죠? 부품을 업그레이드 해봐요 🔧" :
+                 "너무 렉이 심했어요! PC가 약해요 😅 더 좋은 부품이 필요해요!"}
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => { setOver(false); setScore(0); setMissed(0); setTimeLeft(20); setRound(r => r + 1); }}
+                  className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 font-bold text-sm">🔄 다시</button>
+                <button onClick={onExit} className="px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 font-bold text-sm">나가기</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <p className={`text-center text-xs mt-2 ${laggy ? "text-red-400" : "text-gray-400"}`}>
+          🧺 바구니를 움직여 떨어지는 걸 받으세요! {laggy ? "(FPS가 낮아 렉이 걸려요 — 이게 실제 게임 느낌!)" : "(마우스/손가락으로 조작)"}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function ComputerPage() {
   const [screen, setScreen] = useState<Screen>("main");
+  const [playTarget, setPlayTarget] = useState<{ name: string; emoji: string; fps: number } | null>(null);
   const [coins, setCoins] = useState(1200); // 1200만원 예산
   const [inventory, setInventory] = useState<Part[]>([]);
   const [equipped, setEquipped] = useState<Map<string, Part>>(new Map());
@@ -923,6 +1050,10 @@ export default function ComputerPage() {
   }
 
   /* ───── 테스트 결과 ───── */
+  if (screen === "play" && playTarget) {
+    return <PlayGame gameName={playTarget.name} emoji={playTarget.emoji} fps={playTarget.fps} onExit={() => setScreen("test")} />;
+  }
+
   if (screen === "test" && testResult) {
     const budget = [...equipped.values()].reduce((s, p) => s + p.price, 0);
     const { totalScore, cpuScore, gpuScore, ramScore, storageScore, thermalThrottle, powerLimit, bottleneck, bottleneckSeverity, gameResults, cpuTemp, gpuTemp, wattage } = testResult;
@@ -1087,6 +1218,12 @@ export default function ComputerPage() {
                       💿 로딩 시간: ~{r.loadTime}초
                     </div>
                   )}
+                  <button
+                    onClick={() => { setPlayTarget({ name: r.game.name, emoji: r.game.emoji, fps: r.displayFps }); setScreen("play"); }}
+                    disabled={r.fps <= 0}
+                    className={`mt-1.5 w-full rounded-lg py-1.5 text-xs font-black ${r.fps <= 0 ? "bg-gray-800 text-gray-600" : "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 active:scale-95 transition-transform"}`}>
+                    {r.fps <= 0 ? "🚫 실행 불가 (부품 부족)" : `▶ 직접 플레이! (${r.displayFps}fps로 실행)`}
+                  </button>
                 </div>
               ))}
             </div>
