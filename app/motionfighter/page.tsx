@@ -299,7 +299,7 @@ export default function MotionFighter() {
         if (S.cineStage >= 2) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 0.55); }
         if (S.finish <= 0) {
           const pWin = S.finishWin;
-          setCine({ active: false, line: "", win: pWin, stage: -1 });
+          setCine({ active: false, line: "", loserLine: "", win: pWin, stage: -1 });
           setPhase("ko"); setMsg(pWin ? "K.O.! 승리! 🎉" : "K.O.! 패배... 💀");
           if (pWin) setPWins((v) => v + 1); else setCWins((v) => v + 1);
         }
