@@ -17,264 +17,271 @@ function beep(freq: number, dur: number, type: OscillatorType = "square", vol = 
   } catch { /* ignore */ }
 }
 const sHit = () => { beep(180, 0.07, "sawtooth", 0.12); beep(90, 0.1, "square", 0.1); };
-const sSwing = () => beep(520, 0.05, "triangle", 0.06);
-const sBlock = () => beep(700, 0.06, "square", 0.08);
-const sSpecial = () => { [300, 500, 800, 1100].forEach((f, i) => setTimeout(() => beep(f, 0.12, "sawtooth", 0.1), i * 60)); };
+const sCrit = () => { beep(300, 0.06, "square", 0.13); setTimeout(() => beep(600, 0.1, "sawtooth", 0.12), 40); };
+const sSwing = () => beep(480, 0.05, "triangle", 0.05);
 const sKo = () => { [400, 300, 200, 120].forEach((f, i) => setTimeout(() => beep(f, 0.18, "square", 0.11), i * 120)); };
+const sTurn = () => beep(660, 0.08, "triangle", 0.07);
 
-// ───── 공격 정의 (모션마다 다름) ─────
-type AttKind = "punch" | "kick" | "special";
-const ATT: Record<AttKind, { range: number; dmg: number; cd: number; energy: number; motion: string; fx: string; mt: number; cost?: number }> = {
-  punch: { range: 20, dmg: 7, cd: 5, energy: 13, motion: "punch", fx: "👊", mt: 4 },
-  kick: { range: 26, dmg: 13, cd: 10, energy: 20, motion: "kick", fx: "🦵", mt: 6 },
-  special: { range: 60, dmg: 28, cd: 16, energy: 0, motion: "special", fx: "🔥", mt: 9, cost: 100 },
-};
+const W = 360, H = 340, GROUND = 300;
+const SHOULDER_Y = 190, HEAD_Y = 165, HEAD_R = 15, HIP_Y = 245, FOOT_Y = GROUND;
+const SAVE = "bodyfighter_best";
+const PX = 138, CX = 214; // 고정 위치 (턴제)
 
-type Fx = { id: number; x: number; emoji: string; life: number };
-type G = {
-  phase: "fight" | "ko";
-  px: number; cx: number;
-  phP: number; chP: number;
-  pEnergy: number; cEnergy: number;
-  pMotion: string; pMotionT: number; pCd: number;
-  cMotion: string; cMotionT: number; cCd: number;
-  cTick: number; fx: Fx[]; fxId: number;
-  pWins: number; cWins: number; winner: "p" | "c" | null; msg: string;
-};
+type Attack = { active: boolean; t: number; hitDone: boolean; kind: "punch" | "kick"; aim: number };
+type Fighter = { x: number; hp: number; aim: number; atk: Attack; hurtT: number };
+const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2 }, hurtT: 0 });
 
-const initG = (pWins = 0, cWins = 0): G => ({
-  phase: "fight", px: 25, cx: 75, phP: 100, chP: 100, pEnergy: 0, cEnergy: 0,
-  pMotion: "idle", pMotionT: 0, pCd: 0, cMotion: "idle", cMotionT: 0, cCd: 0,
-  cTick: 0, fx: [], fxId: 0, pWins, cWins, winner: null, msg: "FIGHT!",
-});
-
-function motionStyle(motion: string, dir: number): { transform: string; filter: string } {
-  const base = dir < 0 ? "scaleX(-1) " : "";
-  switch (motion) {
-    case "punch": return { transform: base + "translateX(10px) rotate(-6deg)", filter: "none" };
-    case "kick": return { transform: base + "translateX(8px) rotate(-14deg)", filter: "none" };
-    case "special": return { transform: base + "scale(1.2)", filter: "drop-shadow(0 0 10px #ff8c00) brightness(1.3)" };
-    case "block": return { transform: base + "translateX(-5px) scale(0.95)", filter: "brightness(0.85)" };
-    case "hit": return { transform: base + "translateX(-10px) rotate(12deg)", filter: "brightness(1.8) sepia(1) hue-rotate(-40deg) saturate(4)" };
-    case "walk": return { transform: base + "translateY(-3px)", filter: "none" };
-    default: return { transform: base, filter: "none" };
-  }
+function limbTip(f: Fighter, dir: number, kind: "punch" | "kick", ext: number) {
+  const originY = kind === "punch" ? SHOULDER_Y : HIP_Y;
+  const base = kind === "punch" ? 14 : 16;
+  const reach = kind === "punch" ? 60 : 74;
+  const aim = kind === "punch" ? f.atk.aim : f.atk.aim + 0.35;
+  const len = base + reach * ext;
+  return { x: f.x + dir * len * Math.cos(aim), y: originY + len * Math.sin(aim) };
 }
 
 export default function MotionFighter() {
-  const [g, setG] = useState<G>(initG());
-  const gRef = useRef(g);
-  useEffect(() => { gRef.current = g; }, [g]);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [phP, setPhP] = useState(100);
+  const [chP, setChP] = useState(100);
+  const [phase, setPhase] = useState<"fight" | "ko">("fight");
+  const [turn, setTurn] = useState<"p" | "c">("p");
+  const [pWins, setPWins] = useState(0);
+  const [cWins, setCWins] = useState(0);
+  const [msg, setMsg] = useState("내 차례! 조준하고 공격!");
 
-  const ko = (n: G, winner: "p" | "c"): G => {
-    sKo();
-    return { ...n, phase: "ko", winner, pWins: n.pWins + (winner === "p" ? 1 : 0), cWins: n.cWins + (winner === "c" ? 1 : 0), msg: winner === "p" ? "K.O.! 승리! 🎉" : "K.O.! 패배... 💀" };
+  const g = useRef({ p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false });
+  const held = useRef({ aimUp: false, aimDown: false });
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  const resetRound = useCallback((keepWins: boolean) => {
+    g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
+    g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
+    setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
+    if (!keepWins) { setPWins(0); setCWins(0); }
+  }, []);
+
+  const doAttack = useCallback((kind: "punch" | "kick") => {
+    const S = g.current;
+    if (phaseRef.current !== "fight" || S.over || S.turn !== "p" || S.p.atk.active) return;
+    const a = S.p.atk;
+    a.active = true; a.t = 0; a.hitDone = false; a.kind = kind; a.aim = S.p.aim;
+    sSwing();
+  }, []);
+
+  const checkHit = (tip: { x: number; y: number }, target: Fighter): "head" | "body" | null => {
+    const dh = Math.hypot(tip.x - target.x, tip.y - HEAD_Y);
+    if (dh < HEAD_R + 8) return "head";
+    if (tip.x > target.x - 16 && tip.x < target.x + 16 && tip.y > HEAD_Y + 8 && tip.y < HIP_Y + 6) return "body";
+    return null;
   };
 
-  // ───── 플레이어 공격 ─────
-  const attack = useCallback((kind: AttKind) => {
-    setG((prev) => {
-      if (prev.phase !== "fight" || prev.pCd > 0 || prev.pMotion === "hit") return prev;
-      const a = ATT[kind];
-      if (kind === "special" && prev.pEnergy < 100) return prev;
-      const n: G = { ...prev, pMotion: a.motion, pMotionT: a.mt, pCd: a.cd, fx: [...prev.fx] };
-      if (kind === "special") { n.pEnergy = 0; sSpecial(); } else sSwing();
-      const dist = n.cx - n.px;
-      if (dist <= a.range) {
-        const blocking = n.cMotion === "block";
-        const dmg = blocking ? Math.ceil(a.dmg * 0.25) : a.dmg;
-        n.chP = Math.max(0, n.chP - dmg);
-        n.pEnergy = Math.min(100, n.pEnergy + a.energy);
-        if (blocking) { sBlock(); n.cMotionT = Math.max(n.cMotionT, 3); }
-        else { sHit(); n.cMotion = "hit"; n.cMotionT = 6; n.cx = Math.min(92, n.cx + 6); }
-        n.fx.push({ id: n.fxId++, x: n.cx, emoji: blocking ? "🛡️" : a.fx, life: 7 });
-        n.msg = blocking ? "막혔다!" : `${dmg} 피해!`;
-        if (n.chP <= 0) return ko(n, "p");
-      } else {
-        n.msg = "빗나감!";
-      }
-      return n;
-    });
-  }, []);
-
-  const block = useCallback(() => {
-    setG((prev) => (prev.phase !== "fight" || prev.pCd > 0 || prev.pMotion === "hit") ? prev : { ...prev, pMotion: "block", pMotionT: 6 });
-  }, []);
-
-  const move = useCallback((dir: number) => {
-    setG((prev) => {
-      if (prev.phase !== "fight" || prev.pMotion === "hit") return prev;
-      const px = Math.max(8, Math.min(prev.cx - 10, prev.px + dir * 6));
-      return { ...prev, px, pMotion: prev.pMotionT > 0 ? prev.pMotion : "walk", pMotionT: Math.max(prev.pMotionT, 2) };
-    });
-  }, []);
-
-  // ───── 키보드 조작 ─────
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.repeat && !["ArrowLeft", "ArrowRight", "a", "d", "A", "D"].includes(e.key)) return;
-      switch (e.key) {
-        case "ArrowLeft": case "a": case "A": move(-1); break;
-        case "ArrowRight": case "d": case "D": move(1); break;
-        case "j": case "J": case "z": case "Z": attack("punch"); break;
-        case "k": case "K": case "x": case "X": attack("kick"); break;
-        case "l": case "L": case "c": case "C": attack("special"); break;
-        case "ArrowDown": case "s": case "S": case "Shift": case " ": e.preventDefault(); block(); break;
-        default: return;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [move, attack, block]);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let raf = 0, last = performance.now();
 
-  // ───── 게임 루프 (CPU AI + 타이머) ─────
-  useEffect(() => {
-    const iv = setInterval(() => {
-      setG((prev) => {
-        if (prev.phase !== "fight") {
-          // fx만 정리
-          if (prev.fx.length === 0) return prev;
-          return { ...prev, fx: prev.fx.map((f) => ({ ...f, life: f.life - 1 })).filter((f) => f.life > 0) };
+    const loop = (t: number) => {
+      raf = requestAnimationFrame(loop);
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      const S = g.current;
+      const p = S.p, c = S.c;
+
+      if (phaseRef.current === "fight" && !S.over) {
+        // 내 차례: 팔 조준
+        if (S.turn === "p") {
+          if (held.current.aimUp) p.aim = Math.max(-1.05, p.aim - 2.0 * dt);
+          if (held.current.aimDown) p.aim = Math.min(0.5, p.aim + 2.0 * dt);
         }
-        const n: G = { ...prev, fx: prev.fx.map((f) => ({ ...f, life: f.life - 1 })).filter((f) => f.life > 0) };
-        n.cTick++;
-        if (n.pMotionT > 0) n.pMotionT--; else if (n.pMotion !== "idle") n.pMotion = "idle";
-        if (n.cMotionT > 0) n.cMotionT--; else if (n.cMotion !== "idle") n.cMotion = "idle";
-        if (n.pCd > 0) n.pCd--;
-        if (n.cCd > 0) n.cCd--;
-        n.pEnergy = Math.min(100, n.pEnergy + 0.5);
-        n.cEnergy = Math.min(100, n.cEnergy + 0.6);
 
-        // CPU AI
-        if (n.cMotion !== "hit" && n.cCd <= 0 && n.cTick % 2 === 0) {
-          const dist = n.cx - n.px;
-          if (dist > 27) {
-            n.cx = Math.max(n.px + 10, n.cx - 4.5);
-            if (n.cMotionT <= 0) { n.cMotion = "walk"; n.cMotionT = 2; }
-          } else {
-            const r = Math.random();
-            if (n.cEnergy >= 100 && r < 0.35) {
-              // CPU 필살기
-              const a = ATT.special; n.cMotion = a.motion; n.cMotionT = a.mt; n.cCd = a.cd; n.cEnergy = 0; sSpecial();
-              const blocking = n.pMotion === "block";
-              const dmg = blocking ? Math.ceil(a.dmg * 0.25) : a.dmg;
-              n.phP = Math.max(0, n.phP - dmg);
-              if (blocking) { sBlock(); } else { sHit(); n.pMotion = "hit"; n.pMotionT = 6; n.px = Math.max(8, n.px - 6); }
-              n.fx.push({ id: n.fxId++, x: n.px, emoji: blocking ? "🛡️" : a.fx, life: 7 });
-              if (n.phP <= 0) return ko(n, "c");
-            } else if (r < 0.55) {
-              const kind: AttKind = Math.random() < 0.6 ? "punch" : "kick"; const a = ATT[kind];
-              n.cMotion = a.motion; n.cMotionT = a.mt; n.cCd = a.cd; sSwing();
-              if (dist <= a.range) {
-                const blocking = n.pMotion === "block";
-                const dmg = blocking ? Math.ceil(a.dmg * 0.25) : a.dmg;
-                n.phP = Math.max(0, n.phP - dmg);
-                n.cEnergy = Math.min(100, n.cEnergy + a.energy);
-                if (blocking) { sBlock(); } else { sHit(); n.pMotion = "hit"; n.pMotionT = 6; n.px = Math.max(8, n.px - 6); }
-                n.fx.push({ id: n.fxId++, x: n.px, emoji: blocking ? "🛡️" : a.fx, life: 7 });
-                n.msg = blocking ? "방어!" : `-${dmg}`;
-                if (n.phP <= 0) return ko(n, "c");
-              }
-            } else if (r < 0.72) {
-              n.cMotion = "block"; n.cMotionT = 5; n.cCd = 4;
-            } else {
-              n.cx = Math.min(92, n.cx + 3);
+        // 공격 진행 + 히트 → 끝나면 턴 넘김
+        const advance = (f: Fighter, dir: number, target: Fighter, isPlayer: boolean): boolean => {
+          const a = f.atk;
+          if (!a.active) return false;
+          a.t += dt / 0.32;
+          const ext = Math.sin(Math.min(1, a.t) * Math.PI);
+          if (!a.hitDone && a.t > 0.35 && a.t < 0.7) {
+            const tip = limbTip(f, dir, a.kind, ext);
+            const res = checkHit(tip, target);
+            if (res) {
+              a.hitDone = true;
+              const baseDmg = a.kind === "kick" ? 15 : 9;
+              const dmg = res === "head" ? Math.round(baseDmg * 1.8) : baseDmg;
+              target.hp = Math.max(0, target.hp - dmg);
+              target.hurtT = 0.3;
+              if (res === "head") sCrit(); else sHit();
+              setMsg(`${isPlayer ? "적" : "나"}에게 ${dmg} 피해!${res === "head" ? " 크리티컬! 💥" : ""}`);
             }
           }
+          if (a.t >= 1) { a.active = false; a.t = 0; if (!a.hitDone) setMsg(`${isPlayer ? "나" : "적"}: 빗나감!`); return true; }
+          return false;
+        };
+        const pDone = advance(p, 1, c, true);
+        const cDone = advance(c, -1, p, false);
+
+        if (p.hurtT > 0) p.hurtT -= dt;
+        if (c.hurtT > 0) c.hurtT -= dt;
+
+        // 턴 전환
+        if (pDone && S.turn === "p" && !S.over && c.hp > 0) { S.turn = "c"; S.cpuTimer = 0.8; sTurn(); }
+        if (cDone && S.turn === "c" && !S.over && p.hp > 0) { S.turn = "p"; sTurn(); setMsg("내 차례! 조준하고 공격!"); }
+
+        // CPU 차례: 잠깐 생각 후 조준+공격
+        if (S.turn === "c" && !c.atk.active && !S.over && c.hp > 0) {
+          S.cpuTimer -= dt;
+          if (S.cpuTimer <= 0) {
+            const kind = Math.random() < 0.55 ? "punch" : "kick";
+            c.aim = (Math.random() < 0.55 ? -0.35 : 0.05) + (Math.random() - 0.5) * 0.25; // 머리/몸통 조준
+            c.atk.active = true; c.atk.t = 0; c.atk.hitDone = false; c.atk.kind = kind; c.atk.aim = c.aim;
+            sSwing();
+          }
         }
-        return n;
-      });
-    }, 70);
-    return () => clearInterval(iv);
+
+        // KO
+        if (p.hp <= 0 || c.hp <= 0) {
+          S.over = true;
+          const pWin = c.hp <= 0;
+          sKo(); setPhase("ko");
+          setMsg(pWin ? "K.O.! 승리! 🎉" : "K.O.! 패배... 💀");
+          if (pWin) setPWins((v) => v + 1); else setCWins((v) => v + 1);
+        }
+        setPhP(p.hp); setChP(c.hp);
+        if (S.turn !== turnRef.current) { turnRef.current = S.turn; setTurn(S.turn); }
+      }
+
+      // 렌더
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "#1e1b4b"); grad.addColorStop(1, "#0f172a");
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#312e81"; ctx.fillRect(0, GROUND + 8, W, H - GROUND);
+      // 차례 표시등
+      ctx.fillStyle = S.turn === "p" ? "rgba(56,189,248,0.15)" : "rgba(251,113,133,0.15)";
+      ctx.fillRect(S.turn === "p" ? 0 : W / 2, 0, W / 2, H);
+      drawFighter(ctx, p, 1, "#38bdf8", true);
+      drawFighter(ctx, c, -1, "#fb7185", false);
+    };
+    const turnRef = { current: "p" as "p" | "c" };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
-  const matchOver = g.pWins >= 2 || g.cWins >= 2;
-  const nextRound = () => setG(matchOver ? initG() : initG(g.pWins, g.cWins));
+  function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter, dir: number, color: string, isPlayer: boolean) {
+    const x = f.x;
+    const hurt = f.hurtT > 0;
+    ctx.lineWidth = 5; ctx.lineCap = "round";
+    ctx.strokeStyle = hurt ? "#ef4444" : color; ctx.fillStyle = hurt ? "#ef4444" : color;
 
-  const pS = motionStyle(g.pMotion, 1);
-  const cS = motionStyle(g.cMotion, -1);
+    // 조준선 (플레이어 차례에만)
+    if (isPlayer && !f.atk.active && phaseRef.current === "fight" && g.current.turn === "p" && !g.current.over) {
+      ctx.save(); ctx.strokeStyle = "rgba(250,204,21,0.6)"; ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, SHOULDER_Y);
+      ctx.lineTo(x + dir * 78 * Math.cos(f.aim), SHOULDER_Y + 78 * Math.sin(f.aim)); ctx.stroke(); ctx.restore();
+    }
+
+    const kicking = f.atk.active && f.atk.kind === "kick";
+    const kickExt = kicking ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0;
+    ctx.strokeStyle = hurt ? "#ef4444" : color;
+    ctx.beginPath(); ctx.moveTo(x, HIP_Y); ctx.lineTo(x - dir * 12, FOOT_Y); ctx.stroke();
+    if (kicking) {
+      const foot = limbTip(f, dir, "kick", kickExt);
+      ctx.beginPath(); ctx.moveTo(x, HIP_Y); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+      ctx.beginPath(); ctx.arc(foot.x, foot.y, 5, 0, 7); ctx.fill();
+    } else { ctx.beginPath(); ctx.moveTo(x, HIP_Y); ctx.lineTo(x + dir * 10, FOOT_Y); ctx.stroke(); }
+
+    ctx.beginPath(); ctx.moveTo(x, HEAD_Y + HEAD_R); ctx.lineTo(x, HIP_Y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, SHOULDER_Y); ctx.lineTo(x - dir * 14, SHOULDER_Y + 18); ctx.stroke();
+
+    const punching = f.atk.active && f.atk.kind === "punch";
+    const punchExt = punching ? Math.sin(Math.min(1, f.atk.t) * Math.PI) : 0.12;
+    const fist = limbTip(f, dir, "punch", punchExt);
+    ctx.beginPath(); ctx.moveTo(x, SHOULDER_Y); ctx.lineTo(fist.x, fist.y); ctx.stroke();
+    ctx.beginPath(); ctx.arc(fist.x, fist.y, 6, 0, 7); ctx.fill();
+
+    ctx.beginPath(); ctx.arc(x, HEAD_Y, HEAD_R, 0, 7); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + dir * 5, HEAD_Y - 2, 2.5, 0, 7); ctx.fill();
+  }
+
+  const setHold = (k: keyof typeof held.current, v: boolean) => { held.current[k] = v; };
+  useEffect(() => {
+    const dn = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case "ArrowUp": case "w": case "W": setHold("aimUp", true); break;
+        case "ArrowDown": case "s": case "S": setHold("aimDown", true); break;
+        case "j": case "J": case " ": e.preventDefault(); doAttack("punch"); break;
+        case "k": case "K": doAttack("kick"); break;
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (["ArrowUp", "w", "W"].includes(e.key)) setHold("aimUp", false);
+      if (["ArrowDown", "s", "S"].includes(e.key)) setHold("aimDown", false);
+    };
+    window.addEventListener("keydown", dn); window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", dn); window.removeEventListener("keyup", up); };
+  }, [doAttack]);
+
+  const matchOver = pWins >= 3 || cWins >= 3;
+  const myTurn = turn === "p" && phase === "fight";
+  const holdBtn = (k: keyof typeof held.current, label: string) => (
+    <button
+      onMouseDown={() => setHold(k, true)} onMouseUp={() => setHold(k, false)} onMouseLeave={() => setHold(k, false)}
+      onTouchStart={(e) => { e.preventDefault(); setHold(k, true); }} onTouchEnd={() => setHold(k, false)}
+      disabled={!myTurn}
+      className={`rounded-xl py-4 text-lg font-black active:scale-90 select-none ${myTurn ? "bg-indigo-700 active:bg-indigo-600" : "bg-slate-800 text-slate-500"}`}
+    >{label}</button>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-slate-950 text-white flex flex-col items-center px-3 py-4">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-between mb-2">
           <Link href="/" className="text-purple-300 text-sm">← 홈</Link>
-          <h1 className="text-xl font-black">🥋 모션파이터</h1>
-          <span className="text-xs text-amber-300">{"⭐".repeat(g.pWins)} vs {"⭐".repeat(g.cWins)}</span>
+          <h1 className="text-lg font-black">🥋 모션파이터 (턴제)</h1>
+          <span className="text-xs text-amber-300">{"⭐".repeat(pWins)}:{"⭐".repeat(cWins)}</span>
         </div>
 
-        {/* HP 바 */}
+        {/* 차례 배너 */}
+        <div className={`mb-2 rounded-lg py-1 text-center text-sm font-black ${myTurn ? "bg-sky-500/30 text-sky-200" : phase === "fight" ? "bg-red-500/30 text-red-200" : "bg-slate-700 text-slate-300"}`}>
+          {phase === "ko" ? "라운드 종료" : myTurn ? "🔵 내 차례!" : "🔴 적 차례..."}
+        </div>
+
+        {/* HP */}
         <div className="flex items-center gap-2 mb-1 text-xs font-bold">
-          <span className="text-sky-300">🥷 나</span>
-          <div className="flex-1 h-3 rounded-full bg-slate-800 overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all duration-100" style={{ width: `${g.phP}%` }} />
-          </div>
+          <span className="text-sky-300 w-8">나</span>
+          <div className="flex-1 h-3 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-gradient-to-r from-sky-400 to-emerald-400" style={{ width: `${phP}%` }} /></div>
         </div>
-        <div className="flex items-center gap-2 mb-1 text-xs font-bold">
-          <div className="flex-1 h-3 rounded-full bg-slate-800 overflow-hidden flex justify-end">
-            <div className="h-full bg-gradient-to-l from-red-400 to-orange-400 transition-all duration-100" style={{ width: `${g.chP}%` }} />
-          </div>
-          <span className="text-red-300">👹 적</span>
-        </div>
-        {/* 필살기 게이지 */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] text-orange-300 font-bold">⚡필살기</span>
-          <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-            <div className={`h-full transition-all ${g.pEnergy >= 100 ? "bg-yellow-300 animate-pulse" : "bg-orange-500"}`} style={{ width: `${g.pEnergy}%` }} />
-          </div>
+        <div className="flex items-center gap-2 mb-2 text-xs font-bold">
+          <div className="flex-1 h-3 rounded-full bg-slate-800 overflow-hidden flex justify-end"><div className="h-full bg-gradient-to-l from-red-400 to-orange-400" style={{ width: `${chP}%` }} /></div>
+          <span className="text-red-300 w-8 text-right">적</span>
         </div>
 
-        {/* 스테이지 */}
-        <div className="relative h-56 rounded-2xl overflow-hidden border-2 border-purple-700/60 bg-gradient-to-b from-slate-800 to-slate-950">
-          <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-purple-900/60 to-transparent" />
-          {/* 메시지 */}
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 text-sm font-black text-yellow-300 drop-shadow">{g.msg}</div>
-          {/* 플레이어 */}
-          <div className="absolute bottom-4 text-5xl transition-all duration-100" style={{ left: `${g.px}%`, transform: `translateX(-50%)` }}>
-            <span style={{ display: "inline-block", transform: pS.transform, filter: pS.filter, transition: "transform 80ms, filter 80ms" }}>🥷</span>
-          </div>
-          {/* 적 */}
-          <div className="absolute bottom-4 text-5xl transition-all duration-100" style={{ left: `${g.cx}%`, transform: `translateX(-50%)` }}>
-            <span style={{ display: "inline-block", transform: cS.transform, filter: cS.filter, transition: "transform 80ms, filter 80ms" }}>👹</span>
-          </div>
-          {/* 이펙트 */}
-          {g.fx.map((f) => (
-            <span key={f.id} className="absolute bottom-16 text-2xl animate-ping" style={{ left: `${f.x}%`, transform: "translateX(-50%)", opacity: f.life / 7 }}>{f.emoji}</span>
-          ))}
-
-          {/* KO 오버레이 */}
-          {g.phase === "ko" && (
+        <div className="relative rounded-2xl overflow-hidden border-2 border-purple-700/60">
+          <canvas ref={canvasRef} width={W} height={H} className="w-full bg-slate-900" />
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 text-sm font-black text-yellow-300 drop-shadow px-2 text-center">{msg}</div>
+          {phase === "ko" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-center px-4">
-              <div className="text-5xl">{g.winner === "p" ? "🏆" : "💀"}</div>
-              <h2 className={`text-2xl font-black ${g.winner === "p" ? "text-yellow-300" : "text-red-400"}`}>{g.msg}</h2>
-              {matchOver ? (
-                <p className="text-sm font-bold">{g.pWins >= 2 ? "🎉 매치 승리! 최종 챔피언!" : "😢 매치 패배..."} ({g.pWins}:{g.cWins})</p>
-              ) : (
-                <p className="text-xs text-gray-300">라운드 스코어 {g.pWins} : {g.cWins} (2선승제)</p>
-              )}
-              <button onClick={nextRound} className="mt-1 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 px-8 py-3 font-black shadow-lg active:scale-95">
+              <div className="text-5xl">{chP <= 0 ? "🏆" : "💀"}</div>
+              <h2 className={`text-2xl font-black ${chP <= 0 ? "text-yellow-300" : "text-red-400"}`}>{msg}</h2>
+              {matchOver ? <p className="text-sm font-bold">{pWins >= 3 ? "🎉 매치 승리! 챔피언!" : "😢 매치 패배..."} ({pWins}:{cWins})</p>
+                : <p className="text-xs text-gray-300">3선승제 · {pWins}:{cWins}</p>}
+              <button onClick={() => resetRound(!matchOver)} className="mt-1 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 px-8 py-3 font-black active:scale-95">
                 {matchOver ? "🔄 새 매치" : "다음 라운드 ⚔️"}
               </button>
             </div>
           )}
         </div>
 
-        {/* 조작 버튼 */}
+        {/* 조작 */}
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <div className="grid grid-cols-2 gap-2">
-            <button onMouseDown={() => move(-1)} onTouchStart={() => move(-1)} className="rounded-xl bg-slate-700 py-4 text-xl font-black active:scale-90 active:bg-slate-600">◀</button>
-            <button onMouseDown={() => move(1)} onTouchStart={() => move(1)} className="rounded-xl bg-slate-700 py-4 text-xl font-black active:scale-90 active:bg-slate-600">▶</button>
-          </div>
-          <button onMouseDown={block} onTouchStart={block} className="rounded-xl bg-sky-700 py-4 text-lg font-black active:scale-90 active:bg-sky-600">🛡️ 방어</button>
-          <button onMouseDown={() => attack("punch")} onTouchStart={() => attack("punch")} className="rounded-xl bg-amber-600 py-4 text-lg font-black active:scale-90 active:bg-amber-500">👊 펀치</button>
-          <button onMouseDown={() => attack("kick")} onTouchStart={() => attack("kick")} className="rounded-xl bg-orange-600 py-4 text-lg font-black active:scale-90 active:bg-orange-500">🦵 킥</button>
-          <button onMouseDown={() => attack("special")} onTouchStart={() => attack("special")} disabled={g.pEnergy < 100}
-            className={`col-span-2 rounded-xl py-4 text-lg font-black active:scale-90 ${g.pEnergy >= 100 ? "bg-gradient-to-r from-red-500 to-yellow-500 animate-pulse" : "bg-slate-800 text-slate-500"}`}>
-            🔥 필살기! {g.pEnergy < 100 ? `(${Math.floor(g.pEnergy)}%)` : "발동 가능!"}
-          </button>
+          {holdBtn("aimUp", "🔼 팔 위로")}
+          {holdBtn("aimDown", "🔽 팔 아래로")}
+          <button onClick={() => doAttack("punch")} disabled={!myTurn} className={`rounded-xl py-4 text-lg font-black active:scale-90 ${myTurn ? "bg-amber-600 active:bg-amber-500" : "bg-slate-800 text-slate-500"}`}>👊 펀치</button>
+          <button onClick={() => doAttack("kick")} disabled={!myTurn} className={`rounded-xl py-4 text-lg font-black active:scale-90 ${myTurn ? "bg-orange-600 active:bg-orange-500" : "bg-slate-800 text-slate-500"}`}>🦵 킥</button>
         </div>
-        <p className="text-center text-[11px] text-gray-400 mt-2">◀▶ 이동 · 👊펀치(빠름) · 🦵킥(강함) · 🛡️방어 · 🔥필살기(게이지 꽉차면)</p>
-        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ 키보드: ←→(이동) · J/Z(펀치) · K/X(킥) · L/C(필살기) · ↓/Space(방어)</p>
+        <p className="text-center text-[11px] text-gray-300 mt-2">🔼🔽로 <b>팔 각도(노란 조준선)</b>를 맞춘 뒤 👊펀치/🦵킥! <b>머리 조준 = 크리티컬!</b> 공격하면 적 차례로 넘어가요.</p>
+        <p className="text-center text-[10px] text-purple-300/80 mt-1">⌨️ ↑↓ 조준 · J 펀치 · K 킥</p>
       </div>
     </div>
   );
