@@ -77,6 +77,7 @@ export default function MotionFighter() {
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
+    orbs: [] as { x: number; y: number; r: number; life: number; c: string }[],
   });
   const [combo, setCombo] = useState(0);
   const [airborne, setAirborne] = useState(false);
@@ -94,7 +95,7 @@ export default function MotionFighter() {
   const resetRound = useCallback((keepWins: boolean) => {
     g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
     g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
-    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.cineStage = -1; g.current.dyingLine = "";
+    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.orbs = []; g.current.cineStage = -1; g.current.dyingLine = "";
     setCombo(0); setCine({ active: false, line: "", loserLine: "", win: false, stage: -1 });
     setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
     if (!keepWins) { setPWins(0); setCWins(0); }
@@ -287,6 +288,7 @@ export default function MotionFighter() {
             const cols = win ? [md.color, md.aura, "#fff", "#fde047"] : ["#fff", "#f43f5e", "#a855f7", "#fde047"];
             for (let i = 0; i < 130; i++) { const ang = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 1.0 + Math.random() * 1.4, c: cols[i % 4] }); }
             for (let i = 0; i < 12; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
+            S.orbs.push({ x: loser.x, y: HEAD_Y + loser.yOff, r: 8, life: 1.3, c: win ? md.color : "#f43f5e" }); // 동그란 에너지 구
             loser.hurtT = 6; loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
             S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
           }
@@ -315,6 +317,8 @@ export default function MotionFighter() {
       if (S.flash > 0) S.flash = Math.max(0, S.flash - edt);
       for (const sl of S.slashes) sl.life -= edt;
       if (S.slashes.length) S.slashes = S.slashes.filter((sl) => sl.life > 0);
+      for (const ob of S.orbs) { ob.r += 135 * edt; ob.life -= edt; }
+      if (S.orbs.length) S.orbs = S.orbs.filter((o) => o.life > 0);
       if (S.comboT > 0) { S.comboT -= dt; if (S.comboT <= 0 && S.combo !== 0) { S.combo = 0; setCombo(0); } }
 
       // 렌더
@@ -335,6 +339,16 @@ export default function MotionFighter() {
       ctx.globalAlpha = 1;
       // ⚡ 에너지 섬광 (붉은 화면 번쩍)
       if (S.flash > 0) { ctx.globalAlpha = Math.min(0.5, S.flash * 1.6); ctx.fillStyle = "#f43f5e"; ctx.fillRect(-30, -30, W + 60, H + 60); ctx.globalAlpha = 1; }
+      // 🔵 동그란 에너지 구 (커지며 터짐)
+      for (const ob of S.orbs) {
+        const a = Math.min(1, ob.life);
+        ctx.globalAlpha = a;
+        const gr = ctx.createRadialGradient(ob.x, ob.y, 0, ob.x, ob.y, Math.max(1, ob.r));
+        gr.addColorStop(0, "#ffffff"); gr.addColorStop(0.45, ob.c); gr.addColorStop(1, ob.c + "00");
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(ob.x, ob.y, ob.r, 0, 7); ctx.fill();
+        ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ob.x, ob.y, ob.r, 0, 7); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
       // ⚡ 베기 궤적
       ctx.lineCap = "round";
       for (const sl of S.slashes) {
