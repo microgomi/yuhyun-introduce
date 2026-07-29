@@ -39,8 +39,19 @@ const KIND: Record<Kind, { origin: "sh" | "hip"; base: number; reach: number; dm
 const legKind = (k: Kind) => k === "kick" || k === "spin";
 const armKind = (k: Kind) => k === "punch" || k === "smash" || k === "slam";
 type Attack = { active: boolean; t: number; hitDone: boolean; kind: Kind; aim: number; air: boolean };
-type Fighter = { x: number; hp: number; aim: number; legAim: number; atk: Attack; hurtT: number; yOff: number; jumpT: number; reachMul: number };
-const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2, air: false }, hurtT: 0, yOff: 0, jumpT: 0, reachMul: 1 });
+type Fighter = { x: number; hp: number; aim: number; legAim: number; atk: Attack; hurtT: number; yOff: number; jumpT: number; reachMul: number; dead: boolean; deadFall: number };
+const mkFighter = (x: number): Fighter => ({ x, hp: 100, aim: -0.2, legAim: 0.05, atk: { active: false, t: 0, hitDone: false, kind: "punch", aim: -0.2, air: false }, hurtT: 0, yOff: 0, jumpT: 0, reachMul: 1, dead: false, deadFall: 0 });
+
+// 🎭 오리지널 초강력 모드 (저작권 캐릭터 아님 — 우리만의 창작)
+const MODES = {
+  azure: { name: "🔵 창천검성", color: "#38bdf8", aura: "#38bdf8", slash: "#7dd3fc",
+    cry: ["…호흡을 가다듬는다.", "이 일격에 모든 걸 건다!!", "천공─────섬!!!", "베였다. 움직이지 마라.", "승 리"] },
+  crimson: { name: "🔴 마염패왕", color: "#f43f5e", aura: "#f97316", slash: "#fb7185",
+    cry: ["크크… 몸은 좀 풀렸나?", "잿더미로 만들어 주마!!", "업화─────참!!!", "소멸해라. 흔적도 없이.", "승 리"] },
+};
+type ModeKey = keyof typeof MODES;
+const DEFEAT_CRY = ["큭… 여기서 끝인가…", "적이 힘을 모은다…!", "참─────격!!!", "크윽…! 방심했다…", "패 배"];
+const DYING_LINES = ["크윽… 내가… 지다니…", "말도… 안 돼…", "이게… 실력 차이인가…", "다음엔… 반드시 이긴다…"];
 
 function limbTip(f: Fighter, dir: number, kind: Kind, ext: number) {
   const cfg = KIND[kind];
@@ -62,7 +73,7 @@ export default function MotionFighter() {
 
   const g = useRef({
     p: mkFighter(PX), c: mkFighter(CX), turn: "p" as "p" | "c", cpuTimer: 0, over: false,
-    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1,
+    shake: 0, combo: 0, comboT: 0, pHit: false, finish: 0, finishWin: false, flash: 0, cineStage: -1, dyingLine: "",
     parts: [] as { x: number; y: number; vx: number; vy: number; life: number; c: string }[],
     pops: [] as { x: number; y: number; txt: string; life: number; big: boolean }[],
     slashes: [] as { x: number; y: number; len: number; ang: number; life: number }[],
@@ -70,7 +81,10 @@ export default function MotionFighter() {
   const [combo, setCombo] = useState(0);
   const [airborne, setAirborne] = useState(false);
   const airborneRef = useRef(false);
-  const [cine, setCine] = useState<{ active: boolean; line: string; win: boolean; stage: number }>({ active: false, line: "", win: false, stage: -1 });
+  const [cine, setCine] = useState<{ active: boolean; line: string; loserLine: string; win: boolean; stage: number }>({ active: false, line: "", loserLine: "", win: false, stage: -1 });
+  const [mode, setMode] = useState<ModeKey>("azure");
+  const modeRef = useRef<ModeKey>("azure");
+  useEffect(() => { modeRef.current = mode; }, [mode]);
   const held = useRef({ aimUp: false, aimDown: false, legUp: false, legDown: false, reachUp: false, reachDown: false });
   const [reachPct, setReachPct] = useState(100);
   const reachRef = useRef(100);
@@ -80,8 +94,8 @@ export default function MotionFighter() {
   const resetRound = useCallback((keepWins: boolean) => {
     g.current.p = mkFighter(PX); g.current.c = mkFighter(CX);
     g.current.turn = "p"; g.current.over = false; g.current.cpuTimer = 0;
-    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.cineStage = -1;
-    setCombo(0); setCine({ active: false, line: "", win: false, stage: -1 });
+    g.current.finish = 0; g.current.parts = []; g.current.pops = []; g.current.combo = 0; g.current.shake = 0; g.current.flash = 0; g.current.slashes = []; g.current.cineStage = -1; g.current.dyingLine = "";
+    setCombo(0); setCine({ active: false, line: "", loserLine: "", win: false, stage: -1 });
     setPhP(100); setChP(100); setMsg("내 차례! 조준하고 공격!"); setPhase("fight"); setTurn("p");
     if (!keepWins) { setPWins(0); setCWins(0); }
   }, []);
@@ -244,6 +258,9 @@ export default function MotionFighter() {
         if ((p.hp <= 0 || c.hp <= 0) && !S.over) {
           S.over = true;
           S.finish = 15; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          const loser = c.hp <= 0 ? c : p;
+          loser.dead = true; loser.deadFall = 0;
+          S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
           setMsg("");
         }
         setPhP(p.hp); setChP(c.hp);
@@ -255,29 +272,31 @@ export default function MotionFighter() {
         S.finish -= dt;
         const elapsed = 15 - S.finish;
         const stage = elapsed < 3.5 ? 0 : elapsed < 7 ? 1 : elapsed < 8.5 ? 2 : elapsed < 12 ? 3 : 4;
+        const md = MODES[modeRef.current];
         if (stage !== S.cineStage) {
           S.cineStage = stage;
           const win = S.finishWin;
-          const LINES = win
-            ? ["…드디어, 끝이군.", "내 모든 걸 담은 한 방을 받아라!!", "참─────격!!!", "…이걸로 끝이다.", "승 리"]
-            : ["큭… 여기서 끝인가…", "적이 힘을 모은다…!", "참─────격!!!", "크윽…! 방심했다…", "패 배"];
-          setCine({ active: true, line: LINES[stage], win, stage });
+          const LINES = win ? md.cry : DEFEAT_CRY;
+          setCine({ active: true, line: LINES[stage], loserLine: stage === 3 ? S.dyingLine : "", win, stage });
           if (stage <= 1) beep(200, 0.22, "sawtooth", 0.09); // 외침
           if (stage === 2) {
             // ⚔️ 참격 발동! 대폭발
             const loser = win ? c : p;
             S.flash = 1.2; S.shake = 44; sKo();
-            for (let i = 0; i < 130; i++) { const ang = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 1.0 + Math.random() * 1.4, c: ["#fff", "#f43f5e", "#a855f7", "#fde047"][i % 4] }); }
-            for (let i = 0; i < 11; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
-            loser.hurtT = 5; loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
+            const cols = win ? [md.color, md.aura, "#fff", "#fde047"] : ["#fff", "#f43f5e", "#a855f7", "#fde047"];
+            for (let i = 0; i < 130; i++) { const ang = Math.random() * Math.PI * 2, sp = 100 + Math.random() * 400; S.parts.push({ x: loser.x, y: HEAD_Y + loser.yOff, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 40, life: 1.0 + Math.random() * 1.4, c: cols[i % 4] }); }
+            for (let i = 0; i < 12; i++) { S.slashes.push({ x: 30 + Math.random() * (W - 60), y: 50 + Math.random() * (H - 110), len: 220 + Math.random() * 180, ang: (Math.random() - 0.5) * 2.2, life: 0.7 }); }
+            loser.hurtT = 6; loser.x = win ? Math.min(322, loser.x + 20) : Math.max(38, loser.x - 20);
             S.pops.push({ x: W / 2, y: H / 2 - 10, txt: "참격!!", life: 1.2, big: true });
           }
         }
-        // 기 모으기 오라 (기 모으는 단계)
+        // 기 모으기 오라
         if (S.cineStage === 1) {
           const win = S.finishWin, hero = win ? p : c;
-          if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: win ? "#38bdf8" : "#fb7185" }); }
+          if (Math.random() < 0.7) { const ang = Math.random() * Math.PI * 2, r = 55 + Math.random() * 45; S.parts.push({ x: hero.x + Math.cos(ang) * r, y: HEAD_Y + hero.yOff + Math.sin(ang) * r, vx: -Math.cos(ang) * 100, vy: -Math.sin(ang) * 100, life: 0.5, c: win ? md.aura : "#fb7185" }); }
         }
+        // 💀 패자 쓰러지는 연출 (참격 이후 서서히 넘어짐)
+        if (S.cineStage >= 2) { const loser = S.finishWin ? c : p; if (loser.deadFall < 1) loser.deadFall = Math.min(1, loser.deadFall + dt * 0.55); }
         if (S.finish <= 0) {
           const pWin = S.finishWin;
           setCine({ active: false, line: "", win: pWin, stage: -1 });
@@ -308,7 +327,7 @@ export default function MotionFighter() {
       ctx.fillStyle = "#312e81"; ctx.fillRect(-20, GROUND + 8, W + 40, H - GROUND + 20);
       ctx.fillStyle = S.turn === "p" ? "rgba(56,189,248,0.15)" : "rgba(251,113,133,0.15)";
       ctx.fillRect(S.turn === "p" ? -20 : W / 2, -20, W / 2 + 20, H + 40);
-      drawFighter(ctx, p, 1, "#38bdf8", true);
+      drawFighter(ctx, p, 1, MODES[modeRef.current].color, true);
       drawFighter(ctx, c, -1, "#fb7185", false);
       // 파편
       for (const pa of S.parts) { ctx.globalAlpha = Math.min(1, pa.life * 2.5); ctx.fillStyle = pa.c; ctx.beginPath(); ctx.arc(pa.x, pa.y, 3, 0, 7); ctx.fill(); }
@@ -320,9 +339,9 @@ export default function MotionFighter() {
       for (const sl of S.slashes) {
         ctx.globalAlpha = Math.min(1, sl.life / 0.3);
         const dx = Math.cos(sl.ang) * sl.len / 2, dy = Math.sin(sl.ang) * sl.len / 2;
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 5;
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2.4; // 참격 얇게
         ctx.beginPath(); ctx.moveTo(sl.x - dx, sl.y - dy); ctx.lineTo(sl.x + dx, sl.y + dy); ctx.stroke();
-        ctx.strokeStyle = "#f43f5e"; ctx.lineWidth = 2;
+        ctx.strokeStyle = "#f43f5e"; ctx.lineWidth = 0.9;
         ctx.beginPath(); ctx.moveTo(sl.x - dx, sl.y - dy); ctx.lineTo(sl.x + dx, sl.y + dy); ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -343,6 +362,13 @@ export default function MotionFighter() {
     const hurt = f.hurtT > 0;
     ctx.lineWidth = 5; ctx.lineCap = "round";
     ctx.strokeStyle = hurt ? "#ef4444" : color; ctx.fillStyle = hurt ? "#ef4444" : color;
+
+    // 💀 쓰러지는 연출: 넘어지며 서서히 사라짐
+    ctx.save();
+    if (f.dead && f.deadFall > 0) {
+      ctx.globalAlpha = Math.max(0.15, 1 - f.deadFall * 0.6);
+      ctx.translate(x, hipY); ctx.rotate(f.deadFall * (Math.PI / 2) * dir); ctx.translate(-x, -hipY);
+    }
 
     // 조준선 (플레이어 차례에만): 팔(노랑) + 다리(주황)
     const showAim = isPlayer && !f.atk.active && phaseRef.current === "fight" && g.current.turn === "p" && !g.current.over;
@@ -393,7 +419,8 @@ export default function MotionFighter() {
     // 머리
     ctx.beginPath(); ctx.arc(x, hdY, HEAD_R, 0, 7); ctx.fill();
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x + dir * 5, hdY - 2, 2.5, 0, 7); ctx.fill();
-    ctx.restore();
+    ctx.restore(); // spin
+    ctx.restore(); // death
   }
 
   const setHold = (k: keyof typeof held.current, v: boolean) => { held.current[k] = v; };
@@ -446,6 +473,17 @@ export default function MotionFighter() {
           <span className="text-xs text-amber-300">{"⭐".repeat(pWins)}:{"⭐".repeat(cWins)}</span>
         </div>
 
+        {/* 모드 선택 (오리지널 초강력 모드) */}
+        <div className="mb-2 grid grid-cols-2 gap-1.5">
+          {(Object.keys(MODES) as ModeKey[]).map((k) => (
+            <button key={k} onClick={() => setMode(k)} disabled={cine.active}
+              className={`rounded-lg py-1.5 text-xs font-black border-2 transition-all ${mode === k ? "border-white scale-105" : "border-transparent opacity-55"}`}
+              style={{ background: MODES[k].color + "2e", color: MODES[k].color }}>
+              {MODES[k].name}
+            </button>
+          ))}
+        </div>
+
         {/* 차례 배너 */}
         <div className={`mb-2 rounded-lg py-1 text-center text-sm font-black ${myTurn ? "bg-sky-500/30 text-sky-200" : phase === "fight" ? "bg-red-500/30 text-red-200" : "bg-slate-700 text-slate-300"}`}>
           {phase === "ko" ? "라운드 종료" : myTurn ? "🔵 내 차례!" : "🔴 적 차례..."}
@@ -480,6 +518,9 @@ export default function MotionFighter() {
               )}
               {cine.line && cine.stage !== 4 && (
                 <div className="absolute bottom-11 left-1/2 -translate-x-1/2 w-[92%] text-center">
+                  {cine.loserLine && (
+                    <div className="mb-1 text-sm italic text-gray-400 drop-shadow">💀 「{cine.loserLine}」</div>
+                  )}
                   <div className={`font-black drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] ${cine.stage === 2 ? "text-red-400 text-2xl animate-pulse" : cine.win ? "text-sky-200 text-lg" : "text-rose-200 text-lg"}`}>
                     「{cine.line}」
                   </div>
