@@ -287,9 +287,10 @@ export default function MotionFighter() {
           S.over = true;
           const orbWin = c.hp <= 0 && MODES[modeRef.current].finisher === "orb";
           S.selfD = orbWin && Math.random() < 0.35; // 35% 확률 자폭
-          S.stageT = S.selfD ? [4, 9, 34, 40, 45, 48] : [8, 18, 123, 131, 143, 150];
+          // 단계 경계(초): [인트로끝, 도발끝, 합체끝, 발사끝, 여파끝, 마무리끝]
+          S.stageT = S.selfD ? [4, 9, 29, 35, 42, 46] : [6, 13, 38, 45, 52, 57];
           S.mergeStart = S.stageT[1]; S.mergeDur = S.stageT[2] - S.stageT[1];
-          S.finish = S.selfD ? 50 : 156; S.finishWin = c.hp <= 0; S.cineStage = -1;
+          S.finish = S.selfD ? 50 : 60; S.finishWin = c.hp <= 0; S.cineStage = -1;
           const loser = c.hp <= 0 ? c : p;
           loser.dead = true; loser.deadFall = 0;
           S.dyingLine = DYING_LINES[Math.floor(Math.random() * DYING_LINES.length)];
@@ -302,8 +303,8 @@ export default function MotionFighter() {
       // 🎬 150초 액션 영화 (105초까지 천천히 합체 → 발사)
       if (S.finish > 0) {
         S.finish -= dt;
-        const elapsed = (S.selfD ? 50 : 156) - S.finish;
-        // 7단계 (합체=2). 일반: 합체 105초 / 자폭: 25초
+        const elapsed = (S.selfD ? 50 : 60) - S.finish;
+        // 7단계 (합체=2). 일반 60초(합체 25초) / 자폭 50초(합체 20초)
         const t = S.stageT;
         const stage = elapsed < t[0] ? 0 : elapsed < t[1] ? 1 : elapsed < t[2] ? 2 : elapsed < t[3] ? 3 : elapsed < t[4] ? 4 : elapsed < t[5] ? 5 : 6;
         const md = MODES[modeRef.current];
