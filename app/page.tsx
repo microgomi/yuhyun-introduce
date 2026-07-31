@@ -191,6 +191,13 @@ export default function Home() {
                 href: "/motionfighter",
               },
               {
+                emoji: "🖥️",
+                title: "해킹",
+                desc: "암호를 크래킹해 시스템에 침투하라!",
+                bg: "from-green-700 to-emerald-900",
+                href: "/hacking",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
