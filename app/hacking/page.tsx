@@ -24,19 +24,20 @@ const sHacked = () => { [400, 600, 800, 1200, 1600].forEach((f, i) => setTimeout
 
 type Target = { id: string; name: string; emoji: string; len: number; reward: number; sec: string; mission: string };
 const TARGETS: Target[] = [
-  { id: "t1", name: "학교 서버", emoji: "🏫", len: 3, reward: 50, sec: "낮음", mission: "성적표 데이터에 접근하라" },
-  { id: "t2", name: "편의점 결제기", emoji: "🏪", len: 3, reward: 90, sec: "낮음", mission: "포인트 시스템을 열어라" },
-  { id: "t3", name: "게임 회사", emoji: "🎮", len: 4, reward: 160, sec: "보통", mission: "미출시 게임 소스를 빼내라" },
-  { id: "t4", name: "은행 금고", emoji: "🏦", len: 4, reward: 300, sec: "보통", mission: "금고 잠금장치를 해제하라" },
-  { id: "t5", name: "통신사", emoji: "📡", len: 5, reward: 550, sec: "높음", mission: "기지국 제어권을 탈취하라" },
-  { id: "t6", name: "정부 기관", emoji: "🏛️", len: 5, reward: 1000, sec: "높음", mission: "기밀 문서를 다운로드하라" },
-  { id: "t7", name: "우주 기지", emoji: "🛰️", len: 6, reward: 2500, sec: "극악", mission: "위성 통제 시스템을 장악하라" },
-  { id: "t8", name: "AI 슈퍼컴", emoji: "🤖", len: 6, reward: 6000, sec: "불가능?", mission: "인공지능 핵심 코어에 침투하라" },
+  { id: "t1", name: "학교 서버", emoji: "🏫", len: 2, reward: 50, sec: "낮음", mission: "성적표 데이터에 접근하라" },
+  { id: "t2", name: "편의점 결제기", emoji: "🏪", len: 2, reward: 90, sec: "낮음", mission: "포인트 시스템을 열어라" },
+  { id: "t3", name: "게임 회사", emoji: "🎮", len: 3, reward: 160, sec: "보통", mission: "미출시 게임 소스를 빼내라" },
+  { id: "t4", name: "은행 금고", emoji: "🏦", len: 3, reward: 300, sec: "보통", mission: "금고 잠금장치를 해제하라" },
+  { id: "t5", name: "통신사", emoji: "📡", len: 4, reward: 550, sec: "높음", mission: "기지국 제어권을 탈취하라" },
+  { id: "t6", name: "정부 기관", emoji: "🏛️", len: 4, reward: 1000, sec: "높음", mission: "기밀 문서를 다운로드하라" },
+  { id: "t7", name: "우주 기지", emoji: "🛰️", len: 5, reward: 2500, sec: "극악", mission: "위성 통제 시스템을 장악하라" },
+  { id: "t8", name: "AI 슈퍼컴", emoji: "🤖", len: 5, reward: 6000, sec: "불가능?", mission: "인공지능 핵심 코어에 침투하라" },
 ];
 const SCAN_STEPS = ["> 대상 시스템에 연결 중...", "> 포트 스캔... 열린 포트 3개 발견", "> 방화벽 분석 중...", "> 우회 경로 탐색... ✓ 발견!", "> 방화벽 통과! 내부망 진입", "> 관리자 계정 잠금 발견 🔒", "> 암호 크래킹 모드 진입..."];
 const RANKS = ["스크립트 키디", "초보 해커", "해커", "화이트햇", "블랙햇", "전설의 해커", "GHOST"];
 const SAVE = "hacking_save";
-const BASE_TRIES = 8;
+const BASE_TRIES = 12;
+const HINT_COST = 30;
 
 function feedback(secret: string, guess: string) {
   let green = 0, yellow = 0;
@@ -74,8 +75,9 @@ export default function HackingGame() {
   const rank = RANKS[Math.min(RANKS.length - 1, Math.floor(hacks / 3))];
 
   const startHack = (t: Target) => {
-    setTarget(t); setSecret(randCode(t.len)); setGuess(""); setHistory([]);
-    setTriesLeft(BASE_TRIES); setRevealed(""); setMsg("암호를 추측하세요...");
+    const code = randCode(t.len);
+    setTarget(t); setSecret(code); setGuess(""); setHistory([]);
+    setTriesLeft(BASE_TRIES); setRevealed(code.slice(0, 1)); setMsg("🎁 첫 자리 공짜 공개! 나머지를 맞춰봐"); // 첫 자리 무료
     setHackPhase("scan"); setScanShown(0);
     setScreen("hack");
   };
@@ -114,7 +116,7 @@ export default function HackingGame() {
   };
   const revealFirst = () => {
     if (!target) return;
-    const cost = 100;
+    const cost = HINT_COST;
     if (coins < cost || revealed.length >= target.len) return;
     const nc = coins - cost; setCoins(nc); save(nc, hacks);
     setRevealed(secret.slice(0, revealed.length + 1));
@@ -231,7 +233,7 @@ export default function HackingGame() {
               <button onClick={() => { setGuess((g) => g.slice(0, -1)); sKey(); }} className="rounded bg-red-900/50 border border-red-700 py-2 text-sm font-bold text-red-300 active:scale-95">⌫ 지우기</button>
               <button onClick={submit} disabled={guess.length !== target.len} className={`rounded py-2 text-sm font-black active:scale-95 ${guess.length === target.len ? "bg-green-500 text-black" : "bg-green-950 text-green-800"}`}>▶ 침투!</button>
             </div>
-            <button onClick={revealFirst} disabled={coins < 100 || revealed.length >= target.len} className={`w-full rounded border py-1.5 text-xs font-bold ${coins >= 100 && revealed.length < target.len ? "border-cyan-600 text-cyan-400 hover:bg-cyan-950/40" : "border-green-900 text-green-800"}`}>🧠 AI 힌트: 다음 앞자리 공개 (💾100)</button>
+            <button onClick={revealFirst} disabled={coins < HINT_COST || revealed.length >= target.len} className={`w-full rounded border py-1.5 text-xs font-bold ${coins >= HINT_COST && revealed.length < target.len ? "border-cyan-600 text-cyan-400 hover:bg-cyan-950/40" : "border-green-900 text-green-800"}`}>🧠 AI 힌트: 다음 앞자리 공개 (💾{HINT_COST})</button>
 
             {/* 시도 기록 */}
             <div className="rounded border border-green-900 bg-black/50 p-2 max-h-40 overflow-auto text-xs space-y-1">
