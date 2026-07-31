@@ -198,6 +198,13 @@ export default function Home() {
                 href: "/hacking",
               },
               {
+                emoji: "💀",
+                title: "극한 회피",
+                desc: "한 번만 스쳐도 즉사! 극악 난이도!",
+                bg: "from-rose-600 to-red-900",
+                href: "/impossible",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
