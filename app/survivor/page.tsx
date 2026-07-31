@@ -48,13 +48,16 @@ const UPGRADES: Upgrade[] = [
 export default function Survivor() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [phase, setPhase] = useState<"ready" | "play" | "levelup" | "dead" | "clear">("ready");
-  const CLEAR_SEC = 1800; // 30분 생존 = 클리어 (극악 장기 도전!)
+  const GOAL_TOTAL = 3600; // 누적 생존 1시간 = 클리어 (여러 번 나눠서, 쉬면서 해도 OK!)
+  const SAVE_TOTAL = "survivor_total";
   const [hud, setHud] = useState({ hp: 100, maxHp: 100, lvl: 1, xp: 0, xpNext: 5, t: 0, kills: 0 });
   const [choices, setChoices] = useState<Upgrade[]>([]);
   const [best, setBest] = useState(0);
+  const [totalT, setTotalT] = useState(0); // 누적 생존 시간 (클리어 목표, 저장됨)
+  const totalRef = useRef(0);
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { try { setBest(Number(localStorage.getItem(SAVE) || 0)); } catch { /* ignore */ } }, []);
+  useEffect(() => { try { setBest(Number(localStorage.getItem(SAVE) || 0)); const tt = Number(localStorage.getItem(SAVE_TOTAL) || 0); totalRef.current = tt; setTotalT(tt); } catch { /* ignore */ } }, []);
 
   const g = useRef({
     px: W / 2, py: H / 2, hp: 100, stats: { ...START },
@@ -126,7 +129,6 @@ export default function Survivor() {
 
       if (phaseRef.current === "play" && !s.dead) {
         s.t += dt;
-        if (s.t >= CLEAR_SEC) { s.dead = true; sLvl(); setPhase("clear"); }
         // 이동
         let mx = 0, my = 0;
         if (keys.current["arrowleft"] || keys.current["a"]) mx -= 1;
@@ -154,8 +156,13 @@ export default function Survivor() {
         if (s.hp <= 0 && !s.dead) {
           s.dead = true; sDie();
           const sc = Math.floor(s.t);
-          try { const bb = Number(localStorage.getItem(SAVE) || 0); if (sc > bb) { localStorage.setItem(SAVE, String(sc)); setBest(sc); } } catch { /* ignore */ }
-          setPhase("dead");
+          // 누적 생존시간 적립 (여러 판 합산)
+          totalRef.current += sc; setTotalT(totalRef.current);
+          try {
+            const bb = Number(localStorage.getItem(SAVE) || 0); if (sc > bb) { localStorage.setItem(SAVE, String(sc)); setBest(sc); }
+            localStorage.setItem(SAVE_TOTAL, String(totalRef.current));
+          } catch { /* ignore */ }
+          if (totalRef.current >= GOAL_TOTAL) { sLvl(); setPhase("clear"); } else setPhase("dead");
         }
         if (s.hurtFlash > 0) s.hurtFlash -= dt;
 
@@ -285,6 +292,15 @@ export default function Survivor() {
               <h2 className="text-2xl font-black text-amber-300">서바이버</h2>
               <p className="text-sm text-gray-300"><b>이동</b>만 하면 무기는 <b>자동 발사</b>!<br />몰려오는 몬스터에서 살아남아라!<br />💎 경험치 먹고 <b>레벨업 → 무기 강화</b></p>
               <p className="text-[11px] text-gray-400">🖥️ WASD/화살표 · 📱 화면 드래그(조이스틱)</p>
+              {/* 누적 클리어 목표 (쉬면서 여러 번!) */}
+              <div className="w-full rounded-lg bg-amber-950/50 border border-amber-800/50 p-2">
+                <div className="flex justify-between text-[10px] font-bold text-amber-300">
+                  <span>🎯 클리어: 누적 생존 {Math.floor(GOAL_TOTAL / 60)}분</span>
+                  <span>{Math.floor(totalT / 60)}:{String(totalT % 60).padStart(2, "0")} / {Math.floor(GOAL_TOTAL / 60)}:00 {totalT >= GOAL_TOTAL ? "✅" : ""}</span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-black/50 overflow-hidden"><div className="h-full bg-gradient-to-r from-amber-400 to-orange-500" style={{ width: `${Math.min(100, totalT / GOAL_TOTAL * 100)}%` }} /></div>
+                <div className="text-[9px] text-gray-400 mt-0.5">여러 판 나눠서 쉬엄쉬엄 채우면 돼요!</div>
+              </div>
               <button onClick={start} className="mt-1 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black px-8 py-3 font-black shadow-lg active:scale-95">▶ 시작!</button>
             </div>
           )}
@@ -312,7 +328,8 @@ export default function Survivor() {
               <div className="text-6xl">💀</div>
               <h2 className="text-2xl font-black text-red-500">GAME OVER</h2>
               <p className="text-sm text-gray-300">{mm}분 {ss}초 생존 · Lv.{hud.lvl} · 처치 {hud.kills}</p>
-              <p className="text-[11px] text-gray-500">목표: 30분 생존 (현재 {mm}분)</p>
+              <p className="text-[11px] text-amber-400">🎯 누적 {Math.floor(totalT / 60)}분 / {Math.floor(GOAL_TOTAL / 60)}분 (쉬었다 와도 저장돼요!)</p>
+              <div className="w-40 h-1.5 rounded-full bg-black/50 overflow-hidden"><div className="h-full bg-amber-500" style={{ width: `${Math.min(100, totalT / GOAL_TOTAL * 100)}%` }} /></div>
               {Math.floor(hud.t) >= best && hud.t > 0 && <p className="text-amber-300 font-bold">🏆 신기록!</p>}
               <button onClick={start} className="mt-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black px-8 py-3 font-black shadow-lg active:scale-95">🔄 다시</button>
             </div>
@@ -322,7 +339,7 @@ export default function Survivor() {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-amber-900/90 to-black text-center px-5">
               <div className="text-6xl animate-bounce">🏆</div>
               <h2 className="text-3xl font-black text-yellow-300 tracking-widest">GAME CLEAR!</h2>
-              <p className="text-sm text-yellow-100">30분 생존 성공! 진정한 서바이버!<br />Lv.{hud.lvl} · 처치 {hud.kills}마리</p>
+              <p className="text-sm text-yellow-100">누적 {Math.floor(GOAL_TOTAL / 60)}분 생존 달성!<br />진정한 서바이버다! 🎉</p>
               <button onClick={start} className="mt-2 rounded-xl bg-yellow-400 text-black px-8 py-3 font-black shadow-lg active:scale-95">🔄 다시 도전</button>
             </div>
           )}
