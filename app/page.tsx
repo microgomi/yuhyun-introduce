@@ -212,6 +212,13 @@ export default function Home() {
                 href: "/survivor",
               },
               {
+                emoji: "🚀",
+                title: "은하 서바이버",
+                desc: "우주 로그라이크! 진화무기+보스탄막!",
+                bg: "from-cyan-500 to-indigo-800",
+                href: "/galaxy",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
