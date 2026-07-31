@@ -205,6 +205,13 @@ export default function Home() {
                 href: "/impossible",
               },
               {
+                emoji: "🦸",
+                title: "서바이버",
+                desc: "자동공격+레벨업! 30분 생존 도전!",
+                bg: "from-amber-500 to-orange-700",
+                href: "/survivor",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
