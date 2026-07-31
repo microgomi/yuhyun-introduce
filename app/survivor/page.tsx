@@ -45,6 +45,23 @@ const UPGRADES: Upgrade[] = [
   { key: "magnet", name: "자석", emoji: "🧲", desc: "경험치 흡수 범위↑", max: 6, get: (s) => Math.round((s.magnet - 40) / 20), apply: (s) => { s.magnet += 20; } },
 ];
 
+// ───── 캐릭터 (시작 특성이 다름) ─────
+type CharDef = { id: string; name: string; emoji: string; desc: string; apply: (s: Stats) => void };
+const CHARS: CharDef[] = [
+  { id: "knight", name: "기사", emoji: "🦸", desc: "튼튼한 체력형 · 균형", apply: (s) => { s.maxHp += 40; } },
+  { id: "mage", name: "마법사", emoji: "🧙", desc: "폭발파로 시작 · 광역", apply: (s) => { s.nova = 1; s.dmg += 0.2; } },
+  { id: "ninja", name: "닌자", emoji: "🥷", desc: "빠른 이속·연사", apply: (s) => { s.speed += 0.4; s.fireRate += 0.6; } },
+  { id: "hunter", name: "사냥꾼", emoji: "🏹", desc: "다발 사격·자석", apply: (s) => { s.count += 1; s.magnet += 40; } },
+];
+// ───── 영구 강화 (골드로 구매, 저장됨) ─────
+type MetaDef = { key: string; name: string; emoji: string; max: number; cost: (l: number) => number; apply: (s: Stats, l: number) => void };
+const METAS: MetaDef[] = [
+  { key: "hp", name: "시작 체력", emoji: "❤️", max: 10, cost: (l) => 20 + l * 15, apply: (s, l) => { s.maxHp += l * 20; } },
+  { key: "dmg", name: "공격력", emoji: "💪", max: 10, cost: (l) => 25 + l * 20, apply: (s, l) => { s.dmg += l * 0.15; } },
+  { key: "speed", name: "이동속도", emoji: "👟", max: 8, cost: (l) => 20 + l * 15, apply: (s, l) => { s.speed += l * 0.08; } },
+  { key: "fireRate", name: "연사 속도", emoji: "⚡", max: 8, cost: (l) => 25 + l * 18, apply: (s, l) => { s.fireRate += l * 0.12; } },
+  { key: "magnet", name: "자석 범위", emoji: "🧲", max: 8, cost: (l) => 15 + l * 12, apply: (s, l) => { s.magnet += l * 15; } },
+];
 export default function Survivor() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [phase, setPhase] = useState<"ready" | "play" | "levelup" | "dead" | "clear">("ready");
@@ -55,15 +72,33 @@ export default function Survivor() {
   const [best, setBest] = useState(0);
   const [totalT, setTotalT] = useState(0); // 누적 생존 시간 (클리어 목표, 저장됨)
   const totalRef = useRef(0);
+  const [charId, setCharId] = useState("knight");
+  const charRef = useRef("knight");
+  useEffect(() => { charRef.current = charId; }, [charId]);
+  const [gold, setGold] = useState(0);         // 영구 골드 (저장됨)
+  const goldRef = useRef(0);
+  const [meta, setMeta] = useState<Record<string, number>>({}); // 영구 강화 레벨
+  const metaRef = useRef<Record<string, number>>({});
+  useEffect(() => { metaRef.current = meta; }, [meta]);
+  const [runGold, setRunGold] = useState(0);   // 이번 판에서 번 골드
+  const [showShop, setShowShop] = useState(false);
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { try { setBest(Number(localStorage.getItem(SAVE) || 0)); const tt = Number(localStorage.getItem(SAVE_TOTAL) || 0); totalRef.current = tt; setTotalT(tt); } catch { /* ignore */ } }, []);
+  useEffect(() => {
+    try {
+      setBest(Number(localStorage.getItem(SAVE) || 0));
+      const tt = Number(localStorage.getItem(SAVE_TOTAL) || 0); totalRef.current = tt; setTotalT(tt);
+      const gd = Number(localStorage.getItem("survivor_gold") || 0); goldRef.current = gd; setGold(gd);
+      const mt = JSON.parse(localStorage.getItem("survivor_meta") || "{}"); metaRef.current = mt; setMeta(mt);
+    } catch { /* ignore */ }
+  }, []);
+  const saveMeta = (g: number, m: Record<string, number>) => { try { localStorage.setItem("survivor_gold", String(g)); localStorage.setItem("survivor_meta", JSON.stringify(m)); } catch { /* ignore */ } };
 
   const g = useRef({
     px: W / 2, py: H / 2, hp: 100, stats: { ...START },
     lvl: 1, xp: 0, xpNext: 5, t: 0, kills: 0,
     enemies: [] as Enemy[], projs: [] as Proj[], gems: [] as Gem[], floats: [] as FloatTxt[],
-    spawnAcc: 0, bossAcc: 0, fireAcc: 0, novaAcc: 0, orbitAng: 0, hurtFlash: 0, dead: false,
+    spawnAcc: 0, bossAcc: 0, fireAcc: 0, novaAcc: 0, orbitAng: 0, hurtFlash: 0, dead: false, gold: 0,
   });
   const keys = useRef<Record<string, boolean>>({});
   const joy = useRef({ active: false, ox: 0, oy: 0, dx: 0, dy: 0 });
@@ -81,11 +116,14 @@ export default function Survivor() {
 
   const start = useCallback(() => {
     const s = g.current;
-    s.px = W / 2; s.py = H / 2; s.stats = { ...START }; s.hp = s.stats.maxHp;
-    s.lvl = 1; s.xp = 0; s.xpNext = 5; s.t = 0; s.kills = 0;
+    const st: Stats = { ...START };
+    for (const m of METAS) { const l = metaRef.current[m.key] || 0; if (l > 0) m.apply(st, l); } // 영구 강화
+    const ch = CHARS.find((c) => c.id === charRef.current) || CHARS[0]; ch.apply(st); // 캐릭터 특성
+    s.px = W / 2; s.py = H / 2; s.stats = st; s.hp = st.maxHp;
+    s.lvl = 1; s.xp = 0; s.xpNext = 5; s.t = 0; s.kills = 0; s.gold = 0;
     s.enemies = []; s.projs = []; s.gems = []; s.floats = [];
     s.spawnAcc = 0; s.bossAcc = 0; s.fireAcc = 0; s.novaAcc = 0; s.orbitAng = 0; s.hurtFlash = 0; s.dead = false;
-    setHud({ hp: s.hp, maxHp: s.stats.maxHp, lvl: 1, xp: 0, xpNext: 5, t: 0, kills: 0 });
+    setHud({ hp: s.hp, maxHp: st.maxHp, lvl: 1, xp: 0, xpNext: 5, t: 0, kills: 0 }); setRunGold(0);
     setPhase("play");
   }, []);
 
@@ -101,6 +139,15 @@ export default function Survivor() {
     u.apply(s.stats);
     if (u.key === "maxHp") s.hp = Math.min(s.stats.maxHp, s.hp + 25);
     setPhase("play");
+  };
+  const buyMeta = (m: MetaDef) => {
+    const lvl = metaRef.current[m.key] || 0;
+    if (lvl >= m.max) return;
+    const cost = m.cost(lvl);
+    if (goldRef.current < cost) return;
+    goldRef.current -= cost; setGold(goldRef.current);
+    const nm = { ...metaRef.current, [m.key]: lvl + 1 }; metaRef.current = nm; setMeta(nm);
+    saveMeta(goldRef.current, nm); beep(880, 0.08, "triangle", 0.06);
   };
 
   useEffect(() => {
@@ -156,8 +203,9 @@ export default function Survivor() {
         if (s.hp <= 0 && !s.dead) {
           s.dead = true; sDie();
           const sc = Math.floor(s.t);
-          // 누적 생존시간 적립 (여러 판 합산)
+          // 누적 생존시간 + 골드 적립
           totalRef.current += sc; setTotalT(totalRef.current);
+          goldRef.current += s.gold; setGold(goldRef.current); saveMeta(goldRef.current, metaRef.current);
           try {
             const bb = Number(localStorage.getItem(SAVE) || 0); if (sc > bb) { localStorage.setItem(SAVE, String(sc)); setBest(sc); }
             localStorage.setItem(SAVE_TOTAL, String(totalRef.current));
@@ -208,7 +256,7 @@ export default function Survivor() {
         const alive: Enemy[] = [];
         for (const e of s.enemies) {
           if (e.hp > 0) alive.push(e);
-          else { s.kills++; sHit(); if (e.boss) { for (let i = 0; i < 8; i++) s.gems.push({ x: e.x + (Math.random() - 0.5) * 30, y: e.y + (Math.random() - 0.5) * 30, v: 5 }); } else s.gems.push({ x: e.x, y: e.y, v: 1 }); }
+          else { s.kills++; sHit(); s.gold += e.boss ? 30 : 1; if (e.boss) { for (let i = 0; i < 8; i++) s.gems.push({ x: e.x + (Math.random() - 0.5) * 30, y: e.y + (Math.random() - 0.5) * 30, v: 5 }); s.floats.push({ x: e.x, y: e.y, txt: "💰+30", life: 1, c: "#fbbf24" }); } else s.gems.push({ x: e.x, y: e.y, v: 1 }); }
         }
         s.enemies = alive;
 
@@ -226,7 +274,7 @@ export default function Survivor() {
         for (const f of s.floats) { f.y -= 20 * dt; f.life -= dt; }
         s.floats = s.floats.filter((f) => f.life > 0);
 
-        setHud({ hp: Math.max(0, Math.ceil(s.hp)), maxHp: s.stats.maxHp, lvl: s.lvl, xp: s.xp, xpNext: s.xpNext, t: s.t, kills: s.kills });
+        setHud({ hp: Math.max(0, Math.ceil(s.hp)), maxHp: s.stats.maxHp, lvl: s.lvl, xp: s.xp, xpNext: s.xpNext, t: s.t, kills: s.kills }); setRunGold(s.gold);
       }
 
       // ───── 렌더 ─────
@@ -249,7 +297,7 @@ export default function Survivor() {
       // 회전검
       if (s2.stats.orbit > 0 && phaseRef.current !== "ready") { const n = s2.stats.orbit, R = 46; ctx.font = "18px serif"; for (let i = 0; i < n; i++) { const ang = s2.orbitAng + (i / n) * Math.PI * 2; ctx.fillText("🗡️", s2.px + Math.cos(ang) * R, s2.py + Math.sin(ang) * R); } }
       // 플레이어
-      if (phaseRef.current !== "ready") { ctx.font = "22px serif"; ctx.fillText(s2.dead ? "💀" : "🦸", s2.px, s2.py); }
+      if (phaseRef.current !== "ready") { ctx.font = "22px serif"; ctx.fillText(s2.dead ? "💀" : (CHARS.find((c) => c.id === charRef.current)?.emoji || "🦸"), s2.px, s2.py); }
       // floats
       for (const f of s2.floats) { ctx.globalAlpha = Math.min(1, f.life * 2); ctx.fillStyle = f.c; ctx.font = "bold 16px sans-serif"; ctx.fillText(f.txt, f.x, f.y); ctx.globalAlpha = 1; }
       // 피격 플래시
@@ -287,21 +335,59 @@ export default function Survivor() {
           <canvas ref={canvasRef} width={W} height={H} className="w-full touch-none bg-slate-950" />
 
           {phase === "ready" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/85 text-center px-5">
-              <div className="text-6xl">🦸</div>
-              <h2 className="text-2xl font-black text-amber-300">서바이버</h2>
-              <p className="text-sm text-gray-300"><b>이동</b>만 하면 무기는 <b>자동 발사</b>!<br />몰려오는 몬스터에서 살아남아라!<br />💎 경험치 먹고 <b>레벨업 → 무기 강화</b></p>
-              <p className="text-[11px] text-gray-400">🖥️ WASD/화살표 · 📱 화면 드래그(조이스틱)</p>
-              {/* 누적 클리어 목표 (쉬면서 여러 번!) */}
-              <div className="w-full rounded-lg bg-amber-950/50 border border-amber-800/50 p-2">
-                <div className="flex justify-between text-[10px] font-bold text-amber-300">
-                  <span>🎯 클리어: 누적 생존 {Math.floor(GOAL_TOTAL / 60)}분</span>
-                  <span>{Math.floor(totalT / 60)}:{String(totalT % 60).padStart(2, "0")} / {Math.floor(GOAL_TOTAL / 60)}:00 {totalT >= GOAL_TOTAL ? "✅" : ""}</span>
+            <div className="absolute inset-0 flex flex-col gap-2 bg-black/90 px-3 py-3 overflow-auto">
+              {!showShop ? (<>
+                <div className="text-center">
+                  <h2 className="text-xl font-black text-amber-300">🦸 서바이버</h2>
+                  <p className="text-[11px] text-gray-400">이동만 하면 자동 공격! 🖥️WASD/화살표 · 📱드래그</p>
                 </div>
-                <div className="mt-1 h-1.5 rounded-full bg-black/50 overflow-hidden"><div className="h-full bg-gradient-to-r from-amber-400 to-orange-500" style={{ width: `${Math.min(100, totalT / GOAL_TOTAL * 100)}%` }} /></div>
-                <div className="text-[9px] text-gray-400 mt-0.5">여러 판 나눠서 쉬엄쉬엄 채우면 돼요!</div>
-              </div>
-              <button onClick={start} className="mt-1 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black px-8 py-3 font-black shadow-lg active:scale-95">▶ 시작!</button>
+                {/* 캐릭터 선택 */}
+                <p className="text-[11px] font-bold text-cyan-300">👤 캐릭터 선택</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {CHARS.map((c) => (
+                    <button key={c.id} onClick={() => setCharId(c.id)} className={`flex items-center gap-2 rounded-lg border-2 p-1.5 text-left ${charId === c.id ? "border-cyan-400 bg-cyan-950/50" : "border-slate-700 bg-slate-900/50 opacity-70"}`}>
+                      <span className="text-2xl">{c.emoji}</span>
+                      <div><div className="text-xs font-bold">{c.name}</div><div className="text-[9px] text-gray-400">{c.desc}</div></div>
+                    </button>
+                  ))}
+                </div>
+                {/* 누적 목표 */}
+                <div className="rounded-lg bg-amber-950/50 border border-amber-800/50 p-1.5">
+                  <div className="flex justify-between text-[10px] font-bold text-amber-300">
+                    <span>🎯 누적 생존 {Math.floor(GOAL_TOTAL / 60)}분 = 클리어</span>
+                    <span>{Math.floor(totalT / 60)}:{String(totalT % 60).padStart(2, "0")} {totalT >= GOAL_TOTAL ? "✅" : ""}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-black/50 overflow-hidden"><div className="h-full bg-gradient-to-r from-amber-400 to-orange-500" style={{ width: `${Math.min(100, totalT / GOAL_TOTAL * 100)}%` }} /></div>
+                </div>
+                <div className="text-center text-xs font-bold text-yellow-400">💰 골드: {gold}</div>
+                <div className="grid grid-cols-2 gap-2 mt-auto">
+                  <button onClick={() => setShowShop(true)} className="rounded-xl bg-slate-700 py-3 font-black active:scale-95">🏪 영구 강화</button>
+                  <button onClick={start} className="rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black py-3 font-black active:scale-95">▶ 시작!</button>
+                </div>
+              </>) : (<>
+                {/* 영구 강화 상점 */}
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-black text-yellow-300">🏪 영구 강화</h2>
+                  <span className="text-sm font-bold text-yellow-400">💰 {gold}</span>
+                </div>
+                <p className="text-[10px] text-gray-400">골드로 사면 <b>영구히</b> 강해져요 (매판 적용, 저장됨)</p>
+                <div className="space-y-1.5">
+                  {METAS.map((m) => {
+                    const lvl = meta[m.key] || 0; const maxed = lvl >= m.max; const cost = m.cost(lvl);
+                    const can = !maxed && gold >= cost;
+                    return (
+                      <button key={m.key} onClick={() => buyMeta(m)} disabled={!can} className={`w-full flex items-center gap-2 rounded-lg border p-2 text-left ${maxed ? "border-yellow-600 bg-yellow-950/40" : can ? "border-green-600 bg-green-950/40 active:scale-95" : "border-slate-700 bg-slate-900/50 opacity-60"}`}>
+                        <span className="text-2xl">{m.emoji}</span>
+                        <div className="flex-1"><div className="text-xs font-bold">{m.name} <span className="text-[9px] text-cyan-400">Lv.{lvl}/{m.max}</span></div>
+                          <div className="mt-0.5 flex gap-0.5">{Array.from({ length: m.max }).map((_, i) => <div key={i} className={`h-1 flex-1 rounded ${i < lvl ? "bg-yellow-400" : "bg-slate-700"}`} />)}</div>
+                        </div>
+                        <span className="text-xs font-bold text-yellow-400">{maxed ? "MAX" : `💰${cost}`}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={() => setShowShop(false)} className="mt-2 rounded-xl bg-slate-700 py-2.5 font-black active:scale-95">← 돌아가기</button>
+              </>)}
             </div>
           )}
 
@@ -328,7 +414,8 @@ export default function Survivor() {
               <div className="text-6xl">💀</div>
               <h2 className="text-2xl font-black text-red-500">GAME OVER</h2>
               <p className="text-sm text-gray-300">{mm}분 {ss}초 생존 · Lv.{hud.lvl} · 처치 {hud.kills}</p>
-              <p className="text-[11px] text-amber-400">🎯 누적 {Math.floor(totalT / 60)}분 / {Math.floor(GOAL_TOTAL / 60)}분 (쉬었다 와도 저장돼요!)</p>
+              <p className="text-sm font-bold text-yellow-400">💰 +{runGold} 골드 획득! (보유 {gold})</p>
+              <p className="text-[11px] text-amber-400">🎯 누적 {Math.floor(totalT / 60)}분 / {Math.floor(GOAL_TOTAL / 60)}분 · 🏪 골드로 영구 강화 가능!</p>
               <div className="w-40 h-1.5 rounded-full bg-black/50 overflow-hidden"><div className="h-full bg-amber-500" style={{ width: `${Math.min(100, totalT / GOAL_TOTAL * 100)}%` }} /></div>
               {Math.floor(hud.t) >= best && hud.t > 0 && <p className="text-amber-300 font-bold">🏆 신기록!</p>}
               <button onClick={start} className="mt-2 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black px-8 py-3 font-black shadow-lg active:scale-95">🔄 다시</button>
