@@ -203,12 +203,18 @@ export default function Galaxy() {
         st.px = Math.max(10, Math.min(W - 10, st.px)); st.py = Math.max(10, Math.min(H - 10, st.py));
 
         // 스폰
+        const bossAlive = st.enemies.some((e) => e.boss);
         st.spawnAcc += dt;
         const every = Math.max(0.7, 1.8 - st.t * 0.012);
         const mobs = st.enemies.reduce((a, e) => a + (e.boss ? 0 : 1), 0);
-        if (st.spawnAcc > every && mobs < 14) { st.spawnAcc = 0; const n = 1 + Math.floor(st.t / 60); for (let i = 0; i < n; i++) st.enemies.push(mkEnemy(st.t)); }
+        if (st.spawnAcc > every && mobs < 14 && !bossAlive) { st.spawnAcc = 0; const n = 1 + Math.floor(st.t / 60); for (let i = 0; i < n; i++) st.enemies.push(mkEnemy(st.t)); } // 보스전엔 잡몹 스폰 정지
         st.bossAcc += dt;
-        if (st.bossAcc > 22) { st.bossAcc = 0; st.enemies.push(mkEnemy(st.t, true)); sBoss(); st.shake = 10; st.floats.push({ x: W / 2, y: 50, txt: "⚠️ 보스 출현!", life: 1.6, c: "#f43f5e", big: true }); }
+        if (st.bossAcc > 22 && !bossAlive) {
+          st.bossAcc = 0;
+          st.enemies = st.enemies.filter((e) => e.boss); st.ebullets = []; // 잡몹 전부 소탕!
+          st.enemies.push(mkEnemy(st.t, true)); sBoss(); st.shake = 12;
+          st.floats.push({ x: W / 2, y: 50, txt: "⚠️ 보스전! 잡몹 소탕!", life: 1.8, c: "#f43f5e", big: true });
+        }
 
         // 적 이동/행동
         for (const e of st.enemies) {
