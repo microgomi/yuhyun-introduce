@@ -268,7 +268,7 @@ export default function Survivor() {
         }
         s.gems = s.gems.filter((gm) => gm.v > 0);
         // 레벨업
-        if (s.xp >= s.xpNext) { s.xp -= s.xpNext; s.lvl++; s.xpNext = Math.floor(5 + s.lvl * 3); pickLevelUp(); }
+        if (!s.dead && s.xp >= s.xpNext) { s.xp -= s.xpNext; s.lvl++; s.xpNext = Math.floor(5 + s.lvl * 3); pickLevelUp(); } // 죽었으면 레벨업 금지
 
         // floats
         for (const f of s.floats) { f.y -= 20 * dt; f.life -= dt; }

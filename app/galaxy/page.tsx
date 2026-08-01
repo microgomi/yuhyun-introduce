@@ -280,7 +280,7 @@ export default function Galaxy() {
         // 젬 흡수
         for (const gm of st.gems) { const d = Math.hypot(gm.x - st.px, gm.y - st.py); if (d < s.magnet) { gm.x += (st.px - gm.x) * 0.25; gm.y += (st.py - gm.y) * 0.25; } if (d < 12) { st.xp += gm.v; gm.v = -999; sXp(); } }
         st.gems = st.gems.filter((gm) => gm.v > 0);
-        while (st.xp >= st.xpNext) { st.xp -= st.xpNext; st.lvl++; st.xpNext = Math.floor(5 + st.lvl * 3.5); pickLevelUp(); }
+        while (!st.dead && st.xp >= st.xpNext) { st.xp -= st.xpNext; st.lvl++; st.xpNext = Math.floor(5 + st.lvl * 3.5); pickLevelUp(); } // 죽었으면 레벨업 금지
 
         // 파티클/플로팅
         for (const p of st.parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
