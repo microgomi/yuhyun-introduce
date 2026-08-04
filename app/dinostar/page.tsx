@@ -237,6 +237,7 @@ export default function DinostarPage() {
 
   // effects
   const [screenFlash, setScreenFlash] = useState("");
+  const [shopMsg, setShopMsg] = useState("");
 
   // --- Init ---
   useEffect(() => {
@@ -418,13 +419,10 @@ export default function DinostarPage() {
     }, 1000);
   }, []);
 
-  const feedXP = useCallback((dinoUid: string) => {
-    if (xpItems <= 0) return;
-    setXpItems((x) => x - 1);
+  const applyDinoXP = (dinoUid: string, xpGain: number) => {
     setOwnedDinos((prev) =>
       prev.map((d) => {
         if (d.uid !== dinoUid) return d;
-        const xpGain = 30 + Math.floor(Math.random() * 20);
         let newXP = d.xp + xpGain;
         let newLevel = d.level;
         while (newLevel < 50 && newXP >= xpToLevel(newLevel)) {
@@ -438,7 +436,46 @@ export default function DinostarPage() {
         return updated;
       })
     );
+  };
+
+  const feedXP = useCallback((dinoUid: string) => {
+    if (xpItems <= 0) return;
+    setXpItems((x) => x - 1);
+    applyDinoXP(dinoUid, 30 + Math.floor(Math.random() * 20));
   }, [xpItems]);
+
+  // --- 코인으로 경험치 구매 ---
+  const XP_SHOP = [
+    { label: "소량 경험치", emoji: "🍖", xp: 50, cost: 40 },
+    { label: "경험치 팩", emoji: "🍗", xp: 150, cost: 100 },
+    { label: "대량 경험치", emoji: "🥩", xp: 500, cost: 300 },
+  ];
+  const POTION_SHOP = [
+    { count: 1, cost: 60 },
+    { count: 5, cost: 250 },
+  ];
+
+  const showShopMsg = (msg: string) => {
+    setShopMsg(msg);
+    setTimeout(() => setShopMsg(""), 1500);
+  };
+
+  const buyDinoXP = useCallback((dinoUid: string, xpAmount: number, cost: number) => {
+    const dino = ownedDinos.find((d) => d.uid === dinoUid);
+    if (!dino) return;
+    if (dino.level >= 50) { showShopMsg("이미 최대 레벨이에요!"); return; }
+    if (coins < cost) { showShopMsg("코인이 부족해요! 🪙"); return; }
+    setCoins((c) => c - cost);
+    applyDinoXP(dinoUid, xpAmount);
+    showShopMsg(`+${xpAmount} 경험치 획득! (-${cost}코인)`);
+  }, [coins, ownedDinos]);
+
+  const buyXpPotion = useCallback((count: number, cost: number) => {
+    if (coins < cost) { showShopMsg("코인이 부족해요! 🪙"); return; }
+    setCoins((c) => c - cost);
+    setXpItems((x) => x + count);
+    showShopMsg(`💊 XP 포션 ${count}개 구매! (-${cost}코인)`);
+  }, [coins]);
 
   // --- Battle ---
   const leagueInfo = [
@@ -1354,7 +1391,28 @@ export default function DinostarPage() {
         <div className="max-w-lg mx-auto p-4">
           <button onClick={() => { setScreen("main"); setSelectedEvolve(null); }} className="text-green-400 text-sm hover:underline">← 메인으로</button>
           <h1 className="text-2xl font-black text-center mt-4 mb-2">🧬 진화 & 레벨업</h1>
-          <p className="text-center text-purple-300 text-sm mb-4">💊 XP 포션: {xpItems}개</p>
+          <p className="text-center text-purple-300 text-sm mb-1">
+            💊 XP 포션: {xpItems}개 <span className="text-gray-500">|</span> <span className="text-yellow-400">🪙 {coins} 코인</span>
+          </p>
+          <div className="h-6 text-center text-sm font-bold text-green-300">{shopMsg}</div>
+
+          {/* 코인 → XP 포션 상점 */}
+          <div className="bg-gray-900/70 border border-yellow-700/60 rounded-xl p-3 mb-4">
+            <div className="text-sm font-bold text-yellow-300 mb-2 text-center">🛒 코인 상점 — XP 포션 구매</div>
+            <div className="flex gap-2">
+              {POTION_SHOP.map((p) => (
+                <button
+                  key={p.count}
+                  onClick={() => buyXpPotion(p.count, p.cost)}
+                  disabled={coins < p.cost}
+                  className="flex-1 bg-gradient-to-r from-yellow-700 to-amber-900 border border-yellow-500 rounded-lg py-2 text-sm font-bold hover:brightness-125 transition disabled:opacity-40"
+                >
+                  💊 x{p.count}
+                  <div className="text-xs text-yellow-200">🪙 {p.cost}코인</div>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {selected && selectedTemplate && selectedStats ? (
             <div className="space-y-4">
@@ -1431,6 +1489,29 @@ export default function DinostarPage() {
                     </div>
                   )}
                 </button>
+              </div>
+
+              {/* 코인으로 경험치 바로 구매 */}
+              <div className="bg-gray-900/70 border border-emerald-700/60 rounded-xl p-3">
+                <div className="text-sm font-bold text-emerald-300 mb-2 text-center">
+                  💰 코인으로 경험치 사기 (🪙 {coins})
+                </div>
+                <div className="flex gap-2">
+                  {XP_SHOP.map((s) => (
+                    <button
+                      key={s.xp}
+                      onClick={() => buyDinoXP(selected.uid, s.xp, s.cost)}
+                      disabled={coins < s.cost || selected.level >= 50}
+                      className="flex-1 bg-gradient-to-r from-emerald-700 to-emerald-900 border border-emerald-500 rounded-lg py-2 text-sm font-bold hover:brightness-125 transition disabled:opacity-40"
+                    >
+                      {s.emoji} +{s.xp} XP
+                      <div className="text-xs text-emerald-200">🪙 {s.cost}코인</div>
+                    </button>
+                  ))}
+                </div>
+                {selected.level >= 50 && (
+                  <div className="text-xs text-gray-400 text-center mt-2">최대 레벨(50) 달성!</div>
+                )}
               </div>
             </div>
           ) : (
