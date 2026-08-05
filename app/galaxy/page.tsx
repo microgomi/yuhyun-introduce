@@ -48,6 +48,16 @@ const WEAPON_INFO: Record<WKey, { name: string; emoji: string; desc: string; max
   aura: { name: "플라즈마 오라", emoji: "🟣", desc: "주변 적에게 지속 피해", max: 6 },
   chain: { name: "번개", emoji: "⚡", desc: "적 사이를 튀는 번개", max: 6 },
 };
+// ───── 무기 진화: 5레벨 달성 시 상위 무기로 각성 ─────
+const EVO_LV = 5;
+const EVO_INFO: Record<WKey, { name: string; emoji: string; desc: string }> = {
+  laser: { name: "프리즘 빔", emoji: "🌈", desc: "관통 +3 · 연사 2배 · 피해 대폭↑" },
+  missile: { name: "헌터 스웜", emoji: "☄️", desc: "미사일 2배 발사 · 추적력↑ · 피해↑" },
+  sword: { name: "블레이드 스톰", emoji: "⚔️", desc: "칼날 범위·회전 속도·피해 대폭↑" },
+  aura: { name: "블랙홀", emoji: "🌌", desc: "적을 빨아들이며 광역 피해 2배" },
+  chain: { name: "썬더스톰", emoji: "🌩️", desc: "번개 연쇄 2배 · 쿨타임 절반" },
+};
+const isEvo = (w: Weapons, k: WKey) => w[k] >= EVO_LV;
 type PassiveKey = "dmg" | "fireRate" | "speed" | "maxHp" | "magnet" | "pierce" | "crit" | "count";
 const PASSIVE_INFO: Record<PassiveKey, { name: string; emoji: string; desc: string; max: number; apply: (s: Stats) => void }> = {
   dmg: { name: "공격력", emoji: "💪", desc: "모든 피해 +20%", max: 10, apply: (s) => { s.dmg += 0.2; } },
@@ -101,7 +111,7 @@ export default function Galaxy() {
     px: W / 2, py: H / 2, s: baseStats(), w: baseWeapons(),
     lvl: 1, xp: 0, xpNext: 5, t: 0, kills: 0, gold: 0,
     enemies: [] as Enemy[], bullets: [] as Bullet[], ebullets: [] as EB[], gems: [] as Gem[], parts: [] as Part[], floats: [] as Float[],
-    spawnAcc: 0, bossAcc: 0, laserAcc: 0, missileAcc: 0, auraAcc: 0, chainAcc: 0, orbitAng: 0, hurtCd: 0, shake: 0, dead: false,
+    spawnAcc: 0, bossAcc: 0, laserAcc: 0, missileAcc: 0, auraAcc: 0, chainAcc: 0, orbitAng: 0, hurtCd: 0, shake: 0, dead: false, goldAcc: 0,
   });
   const keys = useRef<Record<string, boolean>>({});
   const joy = useRef({ active: false, ox: 0, oy: 0, dx: 0, dy: 0 });
@@ -131,7 +141,7 @@ export default function Galaxy() {
     st.px = W / 2; st.py = H / 2; st.s = s; st.w = w;
     st.lvl = 1; st.xp = 0; st.xpNext = 5; st.t = 0; st.kills = 0; st.gold = 0;
     st.enemies = []; st.bullets = []; st.ebullets = []; st.gems = []; st.parts = []; st.floats = [];
-    st.spawnAcc = 0; st.bossAcc = 0; st.laserAcc = 0; st.missileAcc = 0; st.auraAcc = 0; st.chainAcc = 0; st.orbitAng = 0; st.hurtCd = 0; st.shake = 0; st.dead = false;
+    st.spawnAcc = 0; st.bossAcc = 0; st.laserAcc = 0; st.missileAcc = 0; st.auraAcc = 0; st.chainAcc = 0; st.orbitAng = 0; st.hurtCd = 0; st.shake = 0; st.dead = false; st.goldAcc = 0;
     setHud({ hp: s.hp, maxHp: s.maxHp, lvl: 1, xp: 0, xpNext: 5, t: 0, kills: 0, gold: 0 });
     setPhase("play");
   }, []);
@@ -149,7 +159,15 @@ export default function Galaxy() {
   };
   const choose = (c: Choice) => {
     const st = g.current;
-    if (c.kind === "weapon") st.w[c.key]++;
+    if (c.kind === "weapon") {
+      st.w[c.key]++;
+      if (st.w[c.key] === EVO_LV) { // 진화!
+        const ev = EVO_INFO[c.key];
+        st.floats.push({ x: st.px, y: st.py - 34, txt: `${ev.emoji} ${ev.name} 진화!`, life: 2.2, c: "#facc15", big: true });
+        burst(st, st.px, st.py, 30, "#facc15"); st.shake = 10;
+        beep(660, 0.1, "triangle", 0.07); setTimeout(() => beep(990, 0.16, "triangle", 0.07), 90);
+      }
+    }
     else { PASSIVE_INFO[c.key].apply(st.s); if (c.key === "maxHp") st.s.hp = Math.min(st.s.maxHp, st.s.hp + 30); }
     setPhase("play");
   };
@@ -191,6 +209,9 @@ export default function Galaxy() {
 
       if (phaseRef.current === "play" && !st.dead) {
         st.t += dt;
+        // 생존 보상: 10초마다 골드 +20
+        st.goldAcc += dt;
+        while (st.goldAcc >= 10) { st.goldAcc -= 10; st.gold += 20; st.floats.push({ x: st.px, y: st.py - 22, txt: "💰+20", life: 1, c: "#fbbf24", big: false }); }
         // 이동
         let mx = 0, my = 0;
         if (keys.current["arrowleft"] || keys.current["a"]) mx -= 1;
@@ -243,24 +264,30 @@ export default function Galaxy() {
         }
 
         // 무기: 레이저
+        const evLaser = isEvo(w, "laser");
         st.laserAcc += dt;
-        if (st.laserAcc > 0.7 / s.fireRate && st.enemies.length) {
+        if (st.laserAcc > (evLaser ? 0.35 : 0.7) / s.fireRate && st.enemies.length) {
           st.laserAcc = 0; sLaser();
-          for (let k = 0; k < s.count; k++) { const bi = nearestIdx(st.px, st.py, st.enemies); if (bi < 0) break; const e = st.enemies[(bi + k) % st.enemies.length]; const dx = e.x - st.px, dy = e.y - st.py, d = Math.hypot(dx, dy) || 1; st.bullets.push({ x: st.px, y: st.py, vx: dx / d * 340, vy: dy / d * 340, dmg: 4 * s.dmg * w.laser, pierce: s.pierce + 1, life: 2, homing: false }); }
+          for (let k = 0; k < s.count; k++) { const bi = nearestIdx(st.px, st.py, st.enemies); if (bi < 0) break; const e = st.enemies[(bi + k) % st.enemies.length]; const dx = e.x - st.px, dy = e.y - st.py, d = Math.hypot(dx, dy) || 1; st.bullets.push({ x: st.px, y: st.py, vx: dx / d * 340, vy: dy / d * 340, dmg: 4 * s.dmg * w.laser * (evLaser ? 1.6 : 1), pierce: s.pierce + 1 + (evLaser ? 3 : 0), life: 2, homing: false }); }
         }
         // 무기: 미사일 (유도)
-        if (w.missile > 0) { st.missileAcc += dt; if (st.missileAcc > 1.0 / s.fireRate && st.enemies.length) { st.missileAcc = 0; for (let k = 0; k < w.missile; k++) { const a = Math.random() * Math.PI * 2; st.bullets.push({ x: st.px, y: st.py, vx: Math.cos(a) * 80, vy: Math.sin(a) * 80, dmg: 8 * s.dmg * w.missile, pierce: 0, life: 3, homing: true }); } beep(700, 0.05, "sawtooth", 0.03); } }
+        if (w.missile > 0) { const evM = isEvo(w, "missile"); st.missileAcc += dt; if (st.missileAcc > (evM ? 0.7 : 1.0) / s.fireRate && st.enemies.length) { st.missileAcc = 0; const n = w.missile * (evM ? 2 : 1); for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2; st.bullets.push({ x: st.px, y: st.py, vx: Math.cos(a) * 80, vy: Math.sin(a) * 80, dmg: 8 * s.dmg * w.missile * (evM ? 1.5 : 1), pierce: evM ? 1 : 0, life: 3, homing: true }); } beep(700, 0.05, "sawtooth", 0.03); } }
         // 무기: 오라
-        if (w.aura > 0) { st.auraAcc += dt; if (st.auraAcc > 0.4) { st.auraAcc = 0; const R = 55 + w.aura * 12; for (const e of st.enemies) if (Math.hypot(e.x - st.px, e.y - st.py) < R + e.r) dealDmg(st, e, 3 * s.dmg * w.aura, e.x, e.y); } }
+        if (w.aura > 0) {
+          const evA = isEvo(w, "aura"), R = 55 + w.aura * 12 + (evA ? 40 : 0);
+          if (evA) for (const e of st.enemies) if (!e.boss) { const dx = st.px - e.x, dy = st.py - e.y, d = Math.hypot(dx, dy) || 1; if (d < R * 1.6) { e.x += dx / d * 55 * dt; e.y += dy / d * 55 * dt; } } // 블랙홀: 끌어당김
+          st.auraAcc += dt; if (st.auraAcc > 0.4) { st.auraAcc = 0; for (const e of st.enemies) if (Math.hypot(e.x - st.px, e.y - st.py) < R + e.r) dealDmg(st, e, 3 * s.dmg * w.aura * (evA ? 2 : 1), e.x, e.y); }
+        }
         // 무기: 번개 (체인)
-        if (w.chain > 0) { st.chainAcc += dt; if (st.chainAcc > 1.4 && st.enemies.length) { st.chainAcc = 0; beep(400, 0.06, "square", 0.04); let cx = st.px, cy = st.py; const hitList: Enemy[] = []; for (let j = 0; j < 2 + w.chain; j++) { let bd = 1e9, bi = -1; for (let i = 0; i < st.enemies.length; i++) { const e = st.enemies[i]; if (hitList.includes(e)) continue; const d = (e.x - cx) ** 2 + (e.y - cy) ** 2; if (d < bd && d < 160 ** 2) { bd = d; bi = i; } } if (bi < 0) break; const e = st.enemies[bi]; dealDmg(st, e, 6 * s.dmg * w.chain, e.x, e.y); st.floats.push({ x: (cx + e.x) / 2, y: (cy + e.y) / 2, txt: "⚡", life: 0.25, c: "#a855f7", big: false }); hitList.push(e); cx = e.x; cy = e.y; } } }
+        if (w.chain > 0) { const evC = isEvo(w, "chain"); st.chainAcc += dt; if (st.chainAcc > (evC ? 0.7 : 1.4) && st.enemies.length) { st.chainAcc = 0; beep(400, 0.06, "square", 0.04); let cx = st.px, cy = st.py; const hitList: Enemy[] = []; const jumps = (2 + w.chain) * (evC ? 2 : 1); for (let j = 0; j < jumps; j++) { let bd = 1e9, bi = -1; for (let i = 0; i < st.enemies.length; i++) { const e = st.enemies[i]; if (hitList.includes(e)) continue; const d = (e.x - cx) ** 2 + (e.y - cy) ** 2; if (d < bd && d < 160 ** 2) { bd = d; bi = i; } } if (bi < 0) break; const e = st.enemies[bi]; dealDmg(st, e, 6 * s.dmg * w.chain * (evC ? 1.8 : 1), e.x, e.y); st.floats.push({ x: (cx + e.x) / 2, y: (cy + e.y) / 2, txt: "⚡", life: 0.25, c: "#a855f7", big: false }); hitList.push(e); cx = e.x; cy = e.y; } } }
         // 회전 검
-        st.orbitAng += dt * 2.6;
-        if (w.sword > 0) { const n = w.sword, R = 48; for (let i = 0; i < n; i++) { const ang = st.orbitAng + (i / n) * Math.PI * 2, bx = st.px + Math.cos(ang) * R, by = st.py + Math.sin(ang) * R; for (const e of st.enemies) if (e.hitCd <= 0 && Math.hypot(e.x - bx, e.y - by) < e.r + 9) { dealDmg(st, e, 5 * s.dmg, bx, by); e.hitCd = 0.18; } } }
+        const evS = isEvo(w, "sword");
+        st.orbitAng += dt * (evS ? 4.2 : 2.6);
+        if (w.sword > 0) { const n = w.sword, R = evS ? 72 : 48, hit = evS ? 16 : 9; for (let i = 0; i < n; i++) { const ang = st.orbitAng + (i / n) * Math.PI * 2, bx = st.px + Math.cos(ang) * R, by = st.py + Math.sin(ang) * R; for (const e of st.enemies) if (e.hitCd <= 0 && Math.hypot(e.x - bx, e.y - by) < e.r + hit) { dealDmg(st, e, 5 * s.dmg * (evS ? 2.2 : 1), bx, by); e.hitCd = evS ? 0.12 : 0.18; } } }
 
         // 발사체 이동
         for (const b of st.bullets) {
-          if (b.homing && st.enemies.length) { const bi = nearestIdx(b.x, b.y, st.enemies); if (bi >= 0) { const e = st.enemies[bi]; const dx = e.x - b.x, dy = e.y - b.y, d = Math.hypot(dx, dy) || 1; const desiredVx = dx / d * 220, desiredVy = dy / d * 220; b.vx += (desiredVx - b.vx) * 4 * dt; b.vy += (desiredVy - b.vy) * 4 * dt; } }
+          if (b.homing && st.enemies.length) { const bi = nearestIdx(b.x, b.y, st.enemies); if (bi >= 0) { const e = st.enemies[bi]; const dx = e.x - b.x, dy = e.y - b.y, d = Math.hypot(dx, dy) || 1; const desiredVx = dx / d * 220, desiredVy = dy / d * 220; const hf = isEvo(w, "missile") ? 7 : 4; b.vx += (desiredVx - b.vx) * hf * dt; b.vy += (desiredVy - b.vy) * hf * dt; } }
           b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
           for (const e of st.enemies) { if (Math.hypot(e.x - b.x, e.y - b.y) < e.r + 4) { dealDmg(st, e, b.dmg, b.x, b.y); burst(st, b.x, b.y, 3, "#fde047"); b.pierce--; if (b.pierce < 0) { b.life = 0; } break; } }
         }
@@ -301,7 +328,7 @@ export default function Galaxy() {
       for (let i = 0; i < 40; i++) { const x = (i * 97) % W, y = (i * 173 + Math.floor(st.t * 20)) % H; ctx.fillRect(x, y, 1, 1); }
       const s2 = g.current;
       // 오라
-      if (s2.w.aura > 0 && phaseRef.current !== "ready") { const R = 55 + s2.w.aura * 12; ctx.fillStyle = "rgba(168,85,247,0.12)"; ctx.beginPath(); ctx.arc(s2.px, s2.py, R, 0, 7); ctx.fill(); }
+      if (s2.w.aura > 0 && phaseRef.current !== "ready") { const evA = isEvo(s2.w, "aura"), R = 55 + s2.w.aura * 12 + (evA ? 40 : 0); ctx.fillStyle = evA ? "rgba(88,28,135,0.3)" : "rgba(168,85,247,0.12)"; ctx.beginPath(); ctx.arc(s2.px, s2.py, R, 0, 7); ctx.fill(); if (evA) { ctx.strokeStyle = "rgba(216,180,254,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s2.px, s2.py, R * 0.55, 0, 7); ctx.stroke(); } }
       // 젬
       for (const gm of s2.gems) { ctx.fillStyle = gm.v > 1 ? "#f59e0b" : "#22d3ee"; ctx.beginPath(); ctx.arc(gm.x, gm.y, gm.v > 1 ? 4 : 3, 0, 7); ctx.fill(); }
       // 파티클
@@ -314,7 +341,7 @@ export default function Galaxy() {
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       for (const e of s2.enemies) { ctx.font = `${e.r * 1.8}px serif`; ctx.fillText(e.emoji, e.x, e.y); if (e.hp < e.maxHp) { const bw = e.r * 2; ctx.fillStyle = "#000"; ctx.fillRect(e.x - bw / 2, e.y - e.r - 5, bw, 3); ctx.fillStyle = e.boss ? "#f59e0b" : "#22c55e"; ctx.fillRect(e.x - bw / 2, e.y - e.r - 5, bw * (e.hp / e.maxHp), 3); } }
       // 회전 검
-      if (s2.w.sword > 0 && phaseRef.current !== "ready") { const n = s2.w.sword, R = 48; ctx.font = "18px serif"; for (let i = 0; i < n; i++) { const ang = s2.orbitAng + (i / n) * Math.PI * 2; ctx.fillText("🗡️", s2.px + Math.cos(ang) * R, s2.py + Math.sin(ang) * R); } }
+      if (s2.w.sword > 0 && phaseRef.current !== "ready") { const evS = isEvo(s2.w, "sword"), n = s2.w.sword, R = evS ? 72 : 48; ctx.font = evS ? "26px serif" : "18px serif"; for (let i = 0; i < n; i++) { const ang = s2.orbitAng + (i / n) * Math.PI * 2; ctx.fillText(evS ? "⚔️" : "🗡️", s2.px + Math.cos(ang) * R, s2.py + Math.sin(ang) * R); } }
       // 우주선
       if (phaseRef.current !== "ready") { ctx.font = "24px serif"; ctx.globalAlpha = s2.hurtCd > 0.2 ? 0.5 : 1; ctx.fillText(s2.dead ? "💥" : (SHIPS.find((c) => c.id === shipRef.current)?.emoji || "🚀"), s2.px, s2.py); ctx.globalAlpha = 1; }
       // 플로팅
@@ -331,8 +358,13 @@ export default function Galaxy() {
 
   const mm = Math.floor(hud.t / 60), ss = Math.floor(hud.t % 60);
   const chLabel = (c: Choice) => {
-    if (c.kind === "weapon") { const cur = g.current.w[c.key]; return { emoji: WEAPON_INFO[c.key].emoji, name: WEAPON_INFO[c.key].name, desc: WEAPON_INFO[c.key].desc, lv: cur + 1, isNew: cur === 0 }; }
-    return { emoji: PASSIVE_INFO[c.key].emoji, name: PASSIVE_INFO[c.key].name, desc: PASSIVE_INFO[c.key].desc, lv: 0, isNew: false };
+    if (c.kind === "weapon") {
+      const cur = g.current.w[c.key], nextLv = cur + 1, ev = EVO_INFO[c.key];
+      if (nextLv === EVO_LV) return { emoji: ev.emoji, name: ev.name, desc: ev.desc, lv: nextLv, isNew: false, isEvo: true };       // 이번에 진화
+      if (nextLv > EVO_LV) return { emoji: ev.emoji, name: ev.name, desc: ev.desc, lv: nextLv, isNew: false, isEvo: false };        // 이미 진화됨
+      return { emoji: WEAPON_INFO[c.key].emoji, name: WEAPON_INFO[c.key].name, desc: cur === 0 ? WEAPON_INFO[c.key].desc : `${WEAPON_INFO[c.key].desc} · ${EVO_LV - nextLv}레벨 뒤 ${ev.emoji}진화!`, lv: nextLv, isNew: cur === 0, isEvo: false };
+    }
+    return { emoji: PASSIVE_INFO[c.key].emoji, name: PASSIVE_INFO[c.key].name, desc: PASSIVE_INFO[c.key].desc, lv: 0, isNew: false, isEvo: false };
   };
 
   return (
@@ -403,9 +435,9 @@ export default function Galaxy() {
               <p className="text-xs text-gray-400 mb-1">업그레이드 선택</p>
               <div className="w-full space-y-2">
                 {choices.map((c, i) => { const l = chLabel(c); return (
-                  <button key={i} onClick={() => choose(c)} className="w-full flex items-center gap-3 rounded-xl border border-cyan-700 bg-cyan-950/50 p-2.5 text-left hover:bg-cyan-900/50 active:scale-95">
+                  <button key={i} onClick={() => choose(c)} className={`w-full flex items-center gap-3 rounded-xl border p-2.5 text-left active:scale-95 ${l.isEvo ? "border-amber-400 bg-amber-950/60 hover:bg-amber-900/60 shadow-[0_0_14px_rgba(251,191,36,0.5)]" : "border-cyan-700 bg-cyan-950/50 hover:bg-cyan-900/50"}`}>
                     <span className="text-3xl">{l.emoji}</span>
-                    <div className="flex-1"><div className="font-black text-cyan-200">{l.name} {l.isNew && <span className="text-[9px] bg-green-500 text-black px-1 rounded">NEW!</span>}{c.kind === "weapon" && !l.isNew && <span className="text-[10px] text-cyan-400"> Lv.{l.lv}</span>}</div><div className="text-[11px] text-gray-300">{l.desc}</div></div>
+                    <div className="flex-1"><div className={`font-black ${l.isEvo ? "text-amber-200" : "text-cyan-200"}`}>{l.name} {l.isNew && <span className="text-[9px] bg-green-500 text-black px-1 rounded">NEW!</span>}{l.isEvo && <span className="text-[9px] bg-amber-400 text-black px-1 rounded">✨진화!</span>}{c.kind === "weapon" && !l.isNew && !l.isEvo && <span className="text-[10px] text-cyan-400"> Lv.{l.lv}</span>}</div><div className={`text-[11px] ${l.isEvo ? "text-amber-100" : "text-gray-300"}`}>{l.desc}</div></div>
                   </button>
                 ); })}
               </div>
