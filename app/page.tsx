@@ -177,6 +177,13 @@ export default function Home() {
                 href: "/battlecats",
               },
               {
+                emoji: "🏪",
+                title: "편의점 사장님",
+                desc: "손님 응대! 발주하고 가게 키우는 경영 게임!",
+                bg: "from-orange-400 to-amber-600",
+                href: "/shop",
+              },
+              {
                 emoji: "🔫",
                 title: "탕탕특공대",
                 desc: "자동 슈팅으로 적을 물리치자!",
