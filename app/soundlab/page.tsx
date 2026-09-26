@@ -19,6 +19,9 @@ const SENSITIVITY = [
 ] as const;
 type SensitivityId = (typeof SENSITIVITY)[number]["id"];
 
+/** 저장된 소리를 들을 때 키우는 배율. 멀리서 녹음된 작은 소리도 잘 들리게 한다. */
+const PLAY_BOOST = 5;
+
 /** 너무 작은 소리는 짐작이 의미 없어서 "작은 소리"로만 알려 준다. */
 const QUIET_PEAK = 0.05;
 
@@ -63,8 +66,8 @@ export default function SoundDetectorPage() {
   const [filesError, setFilesError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  /** 재생 중인 오디오 그래프. <audio> 는 원래 크기보다 키울 수 없어서 Web Audio 로 증폭한다. */
+  const playCtxRef = useRef<AudioContext | null>(null);
   /** 저장 완료 콜백은 나중에 불리므로, 그 시점의 잠금 상태를 ref 로 본다. */
   const unlockedRef = useRef(false);
 
@@ -72,10 +75,8 @@ export default function SoundDetectorPage() {
   const micOpen = listening || rec.status === "idle";
 
   const stopPlayback = useCallback(() => {
-    audioRef.current?.pause();
-    audioRef.current = null;
-    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-    audioUrlRef.current = null;
+    void playCtxRef.current?.close();
+    playCtxRef.current = null;
     setPlayingId(null);
   }, []);
 
@@ -161,17 +162,37 @@ export default function SoundDetectorPage() {
   }, [stopPlayback]);
 
   const play = useCallback(
-    (file: SavedSound) => {
+    async (file: SavedSound) => {
       const wasPlaying = playingId === file.id;
       stopPlayback();
       if (wasPlaying) return;
-      const url = URL.createObjectURL(file.wav);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audioUrlRef.current = url;
-      audio.onended = stopPlayback;
+      // 버튼을 누른 순간 만들어야 브라우저가 소리 재생을 허락한다(await 전에 만든다).
+      const ctx = new AudioContext();
+      playCtxRef.current = ctx;
       setPlayingId(file.id);
-      void audio.play().catch(stopPlayback);
+      try {
+        const buffer = await ctx.decodeAudioData(await file.wav.arrayBuffer());
+        if (playCtxRef.current !== ctx) return; // 기다리는 사이 다른 파일을 눌렀다
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const gain = ctx.createGain();
+        gain.gain.value = PLAY_BOOST;
+        // 5배로 키우면 원래 큰 소리는 찢어진다. 리미터로 꼭대기만 눌러 작은 소리는 크게, 큰 소리는 깨끗하게.
+        const limiter = ctx.createDynamicsCompressor();
+        limiter.threshold.value = -3;
+        limiter.knee.value = 0;
+        limiter.ratio.value = 20;
+        limiter.attack.value = 0.001;
+        limiter.release.value = 0.1;
+        source.connect(gain).connect(limiter).connect(ctx.destination);
+        source.onended = () => {
+          if (playCtxRef.current === ctx) stopPlayback();
+        };
+        source.start();
+      } catch (err) {
+        console.warn("소리를 재생하지 못했어요", err);
+        if (playCtxRef.current === ctx) stopPlayback();
+      }
     },
     [playingId, stopPlayback],
   );
@@ -442,10 +463,10 @@ export default function SoundDetectorPage() {
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => play(f)}
+                      onClick={() => void play(f)}
                       className={`rounded-xl px-4 py-2 font-bold ${playingId === f.id ? "bg-red-500" : "bg-emerald-500"}`}
                     >
-                      {playingId === f.id ? "⏹ 멈춤" : "▶ 듣기"}
+                      {playingId === f.id ? "⏹ 멈춤" : `▶ 듣기 🔊×${PLAY_BOOST}`}
                     </button>
                     <button onClick={() => download(f)} className="rounded-xl bg-white/10 px-3 py-2 hover:bg-white/20" title="내려받기">
                       ⬇️
