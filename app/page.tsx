@@ -1220,9 +1220,9 @@ export default function Home() {
                 href: "/foodmaker",
               },
               {
-                emoji: "🎤",
-                title: "소리 탐정",
-                desc: "박수·휘파람·후~! 내 소리를 컴퓨터가 맞혀요",
+                emoji: "📡",
+                title: "근처 소리 탐지기",
+                desc: "주변 소리를 자동 녹음·저장하고 무슨 소리인지 알려줘요",
                 bg: "from-pink-500 via-violet-600 to-indigo-700",
                 href: "/soundlab",
               },

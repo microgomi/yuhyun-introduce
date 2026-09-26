@@ -2,21 +2,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ----------------------------------------------------------------------------
-// 마이크를 켜 두고 "소리 한 덩어리"를 자동으로 잘라 낸다.
+// 마이크를 켜 두고 근처에서 나는 "소리 한 덩어리"를 자동으로 잘라 낸다.
 //
-// 조용히 기다리다가 소리가 나면 녹음을 시작하고, 다시 조용해지면 멈춘다.
+// 조용히 기다리다가 소리가 나면 녹음을 시작하고, 다시 조용해지면 멈춘 뒤 곧바로 다음 소리를 기다린다.
 // 시작 직전의 아주 짧은 부분도 함께 담아야 박수처럼 순간적인 소리의 앞머리가 잘리지 않는다.
 // 녹음한 소리는 이 기기 안에서만 분석하고 어디로도 보내지 않는다.
 // ----------------------------------------------------------------------------
 
 export type RecStatus = "off" | "asking" | "idle" | "armed" | "recording" | "denied" | "unsupported";
 
-/** 이 크기를 넘으면 소리가 시작된 것으로 본다. */
-const START_LEVEL = 0.06;
-/** 이 크기 아래로 이만큼 머무르면 소리가 끝난 것으로 본다. */
-const STOP_LEVEL = 0.025;
-const STOP_AFTER_MS = 450;
-const MAX_RECORD_MS = 3000;
+/** 기본 민감도: 이 크기를 넘으면 소리가 시작된 것으로 본다. 작을수록 먼 소리까지 잡는다. */
+export const DEFAULT_START_LEVEL = 0.05;
+/** 끝났다고 보는 크기는 시작 크기의 이 비율 */
+const STOP_RATIO = 0.45;
+const STOP_AFTER_MS = 600;
+const MAX_RECORD_MS = 6000;
 /** 소리가 시작되기 직전을 얼마나 담아 둘지 */
 const PRE_ROLL_MS = 150;
 const CHUNK = 1024;
@@ -39,6 +39,7 @@ export function useRecorder() {
   const quietMsRef = useRef(0);
   const recordedMsRef = useRef(0);
   const onClipRef = useRef<((clip: Clip) => void) | null>(null);
+  const startLevelRef = useRef(DEFAULT_START_LEVEL);
   const levelRef = useRef(0);
 
   const stop = useCallback(() => {
@@ -60,8 +61,10 @@ export function useRecorder() {
     const ctx = ctxRef.current;
     const chunks = chunksRef.current;
     chunksRef.current = [];
-    modeRef.current = "idle";
-    setStatus("idle");
+    // 한 소리를 저장하는 동안에도 다음 소리를 놓치지 않도록 바로 다시 기다린다.
+    modeRef.current = "armed";
+    preRef.current = [];
+    setStatus("armed");
     if (!ctx || chunks.length === 0) return;
     const total = chunks.reduce((n, c) => n + c.length, 0);
     const samples = new Float32Array(total);
@@ -104,7 +107,7 @@ export function useRecorder() {
         if (modeRef.current === "armed") {
           preRef.current.push(data);
           if (preRef.current.length > preChunks) preRef.current.shift();
-          if (rms > START_LEVEL) {
+          if (rms > startLevelRef.current) {
             modeRef.current = "recording";
             chunksRef.current = [...preRef.current];
             preRef.current = [];
@@ -115,7 +118,7 @@ export function useRecorder() {
         } else if (modeRef.current === "recording") {
           chunksRef.current.push(data);
           recordedMsRef.current += chunkMs;
-          quietMsRef.current = rms < STOP_LEVEL ? quietMsRef.current + chunkMs : 0;
+          quietMsRef.current = rms < startLevelRef.current * STOP_RATIO ? quietMsRef.current + chunkMs : 0;
           if (quietMsRef.current >= STOP_AFTER_MS || recordedMsRef.current >= MAX_RECORD_MS) finish();
         }
       };
@@ -129,7 +132,7 @@ export function useRecorder() {
     }
   }, [finish]);
 
-  /** 다음 소리 한 덩어리를 기다린다. 잡히면 onClip 이 한 번 불린다. */
+  /** 근처 소리를 계속 기다린다. 소리 한 덩어리가 잡힐 때마다 onClip 이 불린다. cancel 로 멈춘다. */
   const listen = useCallback((onClip: (clip: Clip) => void) => {
     if (!ctxRef.current) return;
     onClipRef.current = onClip;
@@ -158,5 +161,9 @@ export function useRecorder() {
     return () => cancelAnimationFrame(raf);
   }, [status]);
 
-  return { status, level, start, stop, listen, cancel };
+  const setSensitivity = useCallback((startLevel: number) => {
+    startLevelRef.current = startLevel;
+  }, []);
+
+  return { status, level, start, stop, listen, cancel, setSensitivity };
 }

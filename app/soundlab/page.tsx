@@ -2,439 +2,483 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
-import { analyze, classify, type Features, type Guess } from "./soundClassify";
-import { type Clip, useRecorder } from "./useRecorder";
+import { analyze, classify, type Guess } from "./soundClassify";
+import { clearSounds, deleteSound, listSounds, type SavedSound, saveSound, toWav } from "./soundStore";
+import { type Clip, DEFAULT_START_LEVEL, useRecorder } from "./useRecorder";
 
-type Mode = "menu" | "mission" | "free";
-type MissionPhase = "ask" | "judged" | "done";
+/**
+ * 저장 파일을 여는 비밀번호.
+ * 화면 잠금일 뿐 암호화는 아니다 — 파일은 이 기기의 브라우저 안에만 있고, 코드를 뜯어보면 번호가 보인다.
+ */
+const FILE_PASSWORD = "6735";
 
-const ROUNDS = 8;
-/** 한 문제에서 다시 해 볼 수 있는 횟수 */
-const TRIES = 3;
-/** 몇 번째 만에 맞혔는지에 따른 점수 */
-const POINTS = [100, 60, 30];
-/** 1등은 아니어도 2등으로 짐작했으면 주는 위로 점수 */
-const CLOSE_POINTS = 15;
-const SAVE_KEY = "soundlab_best_v1";
+const SENSITIVITY = [
+  { id: "high", label: "예민 (먼 소리도)", level: 0.022 },
+  { id: "normal", label: "보통", level: DEFAULT_START_LEVEL },
+  { id: "low", label: "둔감 (큰 소리만)", level: 0.11 },
+] as const;
+type SensitivityId = (typeof SENSITIVITY)[number]["id"];
 
-/** 미션으로 낼 소리. 분류기의 id 와 같아야 한다. */
-const TARGETS: { id: string; emoji: string; label: string; tip: string }[] = [
-  { id: "clap", emoji: "👏", label: "박수 한 번", tip: "손뼉을 짝! 한 번만 세게 쳐요" },
-  { id: "knock", emoji: "🥁", label: "쿵! 두드리기", tip: "책상을 주먹으로 쿵 한 번 두드려요" },
-  { id: "blow", emoji: "🌬️", label: "후~ 불기", tip: "마이크 쪽으로 후~ 길게 불어요" },
-  { id: "voice", emoji: "🗣️", label: "말하기", tip: "\"안녕하세요 반가워요\" 하고 말해요" },
-  { id: "whistle", emoji: "🎵", label: "휘파람 · 높은 음", tip: "휘파람이나 \"삐~\" 하고 높게 길게" },
-  { id: "crash", emoji: "💥", label: "쾅! 큰 소리", tip: "물건을 떨어뜨리거나 크게 쾅!" },
-];
+/** 너무 작은 소리는 짐작이 의미 없어서 "작은 소리"로만 알려 준다. */
+const QUIET_PEAK = 0.05;
 
-function pickTargets(): string[] {
-  const list: string[] = [];
-  for (let i = 0; i < ROUNDS; i++) {
-    const options = TARGETS.filter((t) => t.id !== list[i - 1]);
-    list.push(options[Math.floor(Math.random() * options.length)].id);
-  }
-  return list;
-}
-
-function targetOf(id: string) {
-  return TARGETS.find((t) => t.id === id) ?? TARGETS[0];
-}
-
-interface Result {
+interface Detection {
+  id: string;
+  at: number;
   clip: Clip;
-  features: Features;
   guesses: Guess[];
+  quiet: boolean;
+  saved: "saving" | "saved" | "failed";
 }
 
-function judge(clip: Clip): Result {
-  const features = analyze(clip.samples, clip.sampleRate);
-  return { clip, features, guesses: classify(features) };
+function timeText(at: number) {
+  return new Date(at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function loadBest(): number {
-  try {
-    return Number(localStorage.getItem(SAVE_KEY)) || 0;
-  } catch {
-    return 0;
-  }
+function dateTimeText(at: number) {
+  return new Date(at).toLocaleString("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
-function saveBest(score: number) {
-  try {
-    localStorage.setItem(SAVE_KEY, String(score));
-  } catch {
-    // 저장이 막힌 브라우저에서도 게임은 계속된다.
-  }
+function newId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export default function SoundLabPage() {
+export default function SoundDetectorPage() {
   const rec = useRecorder();
-  const [mode, setMode] = useState<Mode>("menu");
-  const [best, setBest] = useState(0);
+  const { listen, setSensitivity: setRecSensitivity, start, stop } = rec;
+  const [sensitivity, setSensitivity] = useState<SensitivityId>("normal");
+  const [detections, setDetections] = useState<Detection[]>([]);
 
-  // 미션 모드 상태
-  const [targets, setTargets] = useState<string[]>([]);
-  const [round, setRound] = useState(0);
-  const [tries, setTries] = useState(0);
-  const [score, setScore] = useState(0);
-  const [phase, setPhase] = useState<MissionPhase>("ask");
-  const [verdict, setVerdict] = useState<"hit" | "close" | "miss" | null>(null);
-  const [history, setHistory] = useState<{ target: string; ok: boolean }[]>([]);
+  // 파일함
+  const [unlocked, setUnlocked] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState(false);
+  const [files, setFiles] = useState<SavedSound[]>([]);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  /** 저장 완료 콜백은 나중에 불리므로, 그 시점의 잠금 상태를 ref 로 본다. */
+  const unlockedRef = useRef(false);
 
-  const [result, setResult] = useState<Result | null>(null);
+  const listening = rec.status === "armed" || rec.status === "recording";
+  const micOpen = listening || rec.status === "idle";
 
-  const micReady = rec.status === "idle" || rec.status === "armed" || rec.status === "recording";
-
-  // ── 자유 탐지 ──
-  const listenFree = useCallback(() => {
-    setResult(null);
-    rec.listen((clip) => setResult(judge(clip)));
-  }, [rec]);
-
-  // ── 미션 ──
-  const startMission = useCallback(() => {
-    setTargets(pickTargets());
-    setRound(0);
-    setTries(0);
-    setScore(0);
-    setHistory([]);
-    setResult(null);
-    setVerdict(null);
-    setPhase("ask");
-    setMode("mission");
+  const stopPlayback = useCallback(() => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
+    setPlayingId(null);
   }, []);
 
-  const currentTarget = targets[round];
+  useEffect(() => stopPlayback, [stopPlayback]);
 
-  const listenMission = useCallback(() => {
-    if (!currentTarget) return;
-    setResult(null);
-    setVerdict(null);
-    rec.listen((clip) => {
-      const r = judge(clip);
-      setResult(r);
-      setTries((t) => t + 1);
-      const top = r.guesses[0]?.id;
-      const second = r.guesses[1]?.id;
-      if (top === currentTarget) {
-        setVerdict("hit");
-        setScore((s) => s + POINTS[Math.min(tries, POINTS.length - 1)]);
-        setPhase("judged");
-      } else {
-        setVerdict(second === currentTarget ? "close" : "miss");
-        setPhase("judged");
-      }
-    });
-  }, [currentTarget, rec, tries]);
+  const onClip = useCallback((clip: Clip) => {
+    const features = analyze(clip.samples, clip.sampleRate);
+    const guesses = classify(features);
+    const quiet = features.peak < QUIET_PEAK;
+    const detection: Detection = { id: newId(), at: Date.now(), clip, guesses, quiet, saved: "saving" };
+    setDetections((list) => [detection, ...list].slice(0, 30));
 
-  const outOfTries = verdict !== "hit" && tries >= TRIES;
+    const top = guesses[0];
+    const record: SavedSound = {
+      id: detection.id,
+      at: detection.at,
+      durationMs: features.durationMs,
+      peak: features.peak,
+      guessId: quiet ? "quiet" : top.id,
+      emoji: quiet ? "🔈" : top.emoji,
+      label: quiet ? "작은 소리" : top.label,
+      score: top.score,
+      secondLabel: guesses[1]?.label ?? "",
+      wav: toWav(clip),
+    };
+    const mark = (saved: Detection["saved"]) =>
+      setDetections((list) => list.map((d) => (d.id === detection.id ? { ...d, saved } : d)));
+    // 저장이 디스크에 끝난 것을 확인한 다음에만 "저장됨"으로 표시한다.
+    saveSound(record)
+      .then(() => {
+        mark("saved");
+        if (unlockedRef.current) setFiles((list) => [record, ...list]);
+      })
+      .catch((err: unknown) => {
+        console.warn("소리를 저장하지 못했어요", err);
+        mark("failed");
+      });
+  }, []);
 
-  const nextRound = useCallback(() => {
-    const ok = verdict === "hit";
-    // 끝내 못 맞혔지만 2등이었다면 위로 점수
-    const finalScore = !ok && verdict === "close" ? score + CLOSE_POINTS : score;
-    setScore(finalScore);
-    setHistory((h) => [...h, { target: currentTarget, ok }]);
-    setResult(null);
-    setVerdict(null);
-    setTries(0);
-    if (round + 1 >= ROUNDS) {
-      setPhase("done");
-      if (finalScore > best) {
-        setBest(finalScore);
-        saveBest(finalScore);
-      }
-    } else {
-      setRound(round + 1);
-      setPhase("ask");
+  const toggleDetect = useCallback(async () => {
+    if (listening) {
+      stop();
+      return;
     }
-  }, [best, currentTarget, round, score, verdict]);
+    // 마이크가 아직 안 열렸으면 먼저 연다(여기서 권한을 묻는다). 실패하면 listen 은 아무것도 하지 않는다.
+    if (rec.status !== "idle") await start();
+    listen(onClip);
+  }, [listen, listening, onClip, rec.status, start, stop]);
 
-  const goMenu = useCallback(() => {
-    rec.cancel();
-    setResult(null);
-    setMode("menu");
-  }, [rec]);
+  const changeSensitivity = useCallback(
+    (id: SensitivityId) => {
+      setSensitivity(id);
+      setRecSensitivity(SENSITIVITY.find((s) => s.id === id)?.level ?? DEFAULT_START_LEVEL);
+    },
+    [setRecSensitivity],
+  );
+
+  const tryUnlock = useCallback(async () => {
+    if (pin !== FILE_PASSWORD) {
+      setPinError(true);
+      setPin("");
+      return;
+    }
+    setUnlocked(true);
+    unlockedRef.current = true;
+    setPin("");
+    setPinError(false);
+    try {
+      setFiles(await listSounds());
+      setFilesError(null);
+    } catch (err) {
+      console.warn(err);
+      setFilesError("저장된 파일을 읽지 못했어요. 이 브라우저가 저장소를 막고 있을 수 있어요.");
+    }
+  }, [pin]);
+
+  const lock = useCallback(() => {
+    stopPlayback();
+    setUnlocked(false);
+    unlockedRef.current = false;
+    setFiles([]);
+    setConfirmClear(false);
+  }, [stopPlayback]);
+
+  const play = useCallback(
+    (file: SavedSound) => {
+      const wasPlaying = playingId === file.id;
+      stopPlayback();
+      if (wasPlaying) return;
+      const url = URL.createObjectURL(file.wav);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audioUrlRef.current = url;
+      audio.onended = stopPlayback;
+      setPlayingId(file.id);
+      void audio.play().catch(stopPlayback);
+    },
+    [playingId, stopPlayback],
+  );
+
+  const download = useCallback((file: SavedSound) => {
+    const url = URL.createObjectURL(file.wav);
+    const a = document.createElement("a");
+    const stamp = new Date(file.at).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    a.href = url;
+    a.download = `소리_${stamp}_${file.label.split(" ")[0]}.wav`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
+  const remove = useCallback(
+    async (file: SavedSound) => {
+      if (playingId === file.id) stopPlayback();
+      await deleteSound(file.id);
+      setFiles((list) => list.filter((f) => f.id !== file.id));
+    },
+    [playingId, stopPlayback],
+  );
+
+  const removeAll = useCallback(async () => {
+    stopPlayback();
+    await clearSounds();
+    setFiles([]);
+    setConfirmClear(false);
+  }, [stopPlayback]);
+
+  const latest = detections[0];
+  const tally = new Map<string, { emoji: string; label: string; count: number }>();
+  for (const d of detections) {
+    const emoji = d.quiet ? "🔈" : d.guesses[0].emoji;
+    const label = d.quiet ? "작은 소리" : d.guesses[0].label;
+    const prev = tally.get(label);
+    if (prev) prev.count++;
+    else tally.set(label, { emoji, label, count: 1 });
+  }
+  const threshold = SENSITIVITY.find((s) => s.id === sensitivity)?.level ?? DEFAULT_START_LEVEL;
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center bg-gradient-to-b from-indigo-950 via-violet-950 to-slate-950 px-4 pb-16 text-white">
+    <div className="relative flex min-h-screen flex-col items-center bg-gradient-to-b from-slate-950 via-indigo-950 to-slate-950 px-4 pb-16 text-white">
       <style jsx global>{`
-        @keyframes ringPulse {
-          0% { transform: scale(0.8); opacity: 0.8; }
-          100% { transform: scale(1.8); opacity: 0; }
+        @keyframes radarSweep {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
-        .ring-pulse { animation: ringPulse 1.2s ease-out infinite; }
+        .radar-sweep { animation: radarSweep 2.4s linear infinite; }
+        @keyframes ringPulse {
+          0% { transform: scale(0.6); opacity: 0.9; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+        .ring-pulse { animation: ringPulse 0.9s ease-out infinite; }
         @keyframes popIn {
-          0% { transform: scale(0.5); opacity: 0; }
-          70% { transform: scale(1.1); opacity: 1; }
+          0% { transform: scale(0.6); opacity: 0; }
+          70% { transform: scale(1.08); opacity: 1; }
           100% { transform: scale(1); }
         }
-        .pop-in { animation: popIn 0.35s ease-out; }
+        .pop-in { animation: popIn 0.3s ease-out; }
       `}</style>
 
       <div className="flex w-full max-w-3xl items-center justify-between py-4">
-        {mode === "menu" ? (
-          <Link href="/" className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">
-            ← 홈
-          </Link>
-        ) : (
-          <button onClick={goMenu} className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">
-            ← 메뉴
-          </button>
-        )}
-        <div className="text-sm text-white/70">🏆 최고 {best}점</div>
+        <Link href="/" className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">
+          ← 홈
+        </Link>
+        <div className="text-sm text-white/60">이번에 감지 {detections.length}번</div>
       </div>
 
-      <h1 className="mt-2 text-center text-4xl font-black tracking-tight sm:text-5xl">🎤 소리 탐정</h1>
-      <p className="mt-2 text-center text-white/70">내가 낸 소리를 컴퓨터가 알아맞혀요!</p>
+      <h1 className="mt-1 text-center text-4xl font-black tracking-tight sm:text-5xl">📡 근처 소리 탐지기</h1>
+      <p className="mt-2 text-center text-white/70">주변에서 소리가 나면 자동으로 녹음·저장하고 무슨 소리인지 알려 줘요</p>
 
-      {/* 마이크 켜기 */}
-      {!micReady && (
-        <div className="mt-10 flex max-w-md flex-col items-center gap-4 text-center">
-          {rec.status === "denied" && (
-            <p className="rounded-xl bg-red-500/20 p-4 text-red-200">
-              마이크를 쓸 수 없어요. 주소창 옆 🔒 를 눌러 마이크를 허용한 뒤 다시 눌러 주세요.
-            </p>
-          )}
-          {rec.status === "unsupported" && (
-            <p className="rounded-xl bg-red-500/20 p-4 text-red-200">이 브라우저는 마이크를 지원하지 않아요.</p>
-          )}
-          <button
-            onClick={() => {
-              setBest(loadBest());
-              void rec.start();
-            }}
-            disabled={rec.status === "asking"}
-            className="rounded-2xl bg-gradient-to-r from-pink-500 to-violet-500 px-8 py-5 text-2xl font-black shadow-lg transition-transform hover:scale-105 disabled:opacity-60"
-          >
-            {rec.status === "asking" ? "허락을 기다리는 중…" : "🎙️ 마이크 켜기"}
-          </button>
-          <p className="text-sm text-white/50">소리는 이 기기 안에서만 분석하고 어디에도 보내지 않아요.</p>
-        </div>
-      )}
-
-      {micReady && <LevelBar level={rec.level} status={rec.status} />}
-
-      {micReady && mode === "menu" && (
-        <div className="mt-8 grid w-full max-w-3xl gap-4 sm:grid-cols-2">
-          <button
-            onClick={startMission}
-            className="rounded-3xl bg-gradient-to-br from-amber-400 to-pink-500 p-6 text-left shadow-xl transition-transform hover:scale-[1.03]"
-          >
-            <div className="text-5xl">🎯</div>
-            <div className="mt-3 text-2xl font-black">소리 미션</div>
-            <div className="mt-1 text-white/90">
-              시키는 소리를 내서 컴퓨터가 맞히게 해요! {ROUNDS}문제, 문제마다 {TRIES}번 기회.
-            </div>
-          </button>
-          <button
-            onClick={() => {
-              setResult(null);
-              setMode("free");
-            }}
-            className="rounded-3xl bg-gradient-to-br from-cyan-400 to-indigo-600 p-6 text-left shadow-xl transition-transform hover:scale-[1.03]"
-          >
-            <div className="text-5xl">🔍</div>
-            <div className="mt-3 text-2xl font-black">자유 탐지</div>
-            <div className="mt-1 text-white/90">아무 소리나 내 보세요. 무슨 소리인지 짐작하고 이유도 알려 줘요.</div>
-          </button>
-          <div className="rounded-2xl bg-white/5 p-4 text-sm text-white/70 sm:col-span-2">
-            알아맞히는 소리: {TARGETS.map((t) => `${t.emoji} ${t.label}`).join(" · ")}
+      {/* 레이더 */}
+      <div className="relative mt-8 flex h-64 w-64 items-center justify-center sm:h-72 sm:w-72">
+        <div className="absolute inset-0 rounded-full border-2 border-emerald-400/40 bg-emerald-950/40" />
+        <div className="absolute inset-[18%] rounded-full border border-emerald-400/25" />
+        <div className="absolute inset-[36%] rounded-full border border-emerald-400/20" />
+        {listening && (
+          <div
+            className="radar-sweep absolute inset-0 rounded-full"
+            style={{ background: "conic-gradient(from 0deg, rgba(52,211,153,0.45), transparent 25%)" }}
+          />
+        )}
+        {rec.status === "recording" && <span className="ring-pulse absolute inset-[20%] rounded-full bg-red-500/40" />}
+        {/* 소리 크기만큼 가운데 원이 커진다 */}
+        <div
+          className={`absolute rounded-full transition-all duration-75 ${rec.status === "recording" ? "bg-red-500/60" : "bg-emerald-400/40"}`}
+          style={{ width: `${16 + rec.level * 80}%`, height: `${16 + rec.level * 80}%` }}
+        />
+        <div key={latest?.id} className="pop-in relative z-10 text-center">
+          <div className="text-6xl">
+            {rec.status === "recording" ? "🔴" : latest ? (latest.quiet ? "🔈" : latest.guesses[0].emoji) : listening ? "👂" : "📡"}
+          </div>
+          <div className="mt-1 text-sm font-bold text-white/80">
+            {rec.status === "recording" ? "소리 녹음 중…" : listening ? "듣는 중…" : "꺼짐"}
           </div>
         </div>
-      )}
+      </div>
 
-      {micReady && mode === "free" && (
-        <div className="mt-8 flex w-full max-w-3xl flex-col items-center gap-6">
-          <ListenButton status={rec.status} onListen={listenFree} label="🔍 소리 듣기" />
-          {result && <ResultPanel result={result} />}
+      {/* 소리 크기 막대 + 감지선 */}
+      {micOpen && (
+        <div className="mt-6 w-full max-w-md">
+          <div className="relative h-3 rounded-full bg-white/10">
+            <div
+              className={`h-full rounded-full transition-[width] duration-75 ${rec.status === "recording" ? "bg-red-400" : "bg-emerald-400"}`}
+              style={{ width: `${Math.round(rec.level * 100)}%` }}
+            />
+            {/* 막대는 크기×3 으로 그리므로 감지선도 같은 비율로 놓는다 */}
+            <div className="absolute -top-1 h-5 w-0.5 bg-amber-300" style={{ left: `${Math.min(100, threshold * 300)}%` }} />
+          </div>
+          <div className="mt-1 text-right text-xs text-white/50">노란 선을 넘는 소리를 잡아요</div>
         </div>
       )}
 
-      {micReady && mode === "mission" && phase !== "done" && currentTarget && (
-        <div className="mt-6 flex w-full max-w-3xl flex-col items-center gap-5">
-          <div className="flex w-full items-center justify-between text-sm text-white/70">
+      <div className="mt-6 flex flex-col items-center gap-3">
+        <button
+          onClick={() => void toggleDetect()}
+          disabled={rec.status === "asking"}
+          className={`rounded-2xl px-10 py-4 text-2xl font-black shadow-lg transition-transform hover:scale-105 disabled:opacity-60 ${
+            listening ? "bg-white/15" : "bg-gradient-to-r from-emerald-500 to-cyan-500"
+          }`}
+        >
+          {rec.status === "asking" ? "허락을 기다리는 중…" : listening ? "⏹ 감지 멈추기" : "👂 감지 시작"}
+        </button>
+        <div className="flex flex-wrap justify-center gap-2">
+          {SENSITIVITY.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => changeSensitivity(s.id)}
+              className={`rounded-full px-3 py-1.5 text-sm ${
+                sensitivity === s.id ? "bg-amber-400 font-bold text-slate-900" : "bg-white/10 text-white/80"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {rec.status === "denied" && (
+          <p className="max-w-md rounded-xl bg-red-500/20 p-3 text-center text-sm text-red-200">
+            마이크를 쓸 수 없어요. 주소창 옆 🔒 를 눌러 마이크를 허용한 뒤 다시 눌러 주세요.
+          </p>
+        )}
+        {rec.status === "unsupported" && (
+          <p className="rounded-xl bg-red-500/20 p-3 text-sm text-red-200">이 브라우저는 마이크를 지원하지 않아요.</p>
+        )}
+        <p className="text-center text-xs text-white/40">
+          녹음은 이 기기의 브라우저 안에만 저장되고 어디에도 보내지 않아요. 페이지를 닫으면 감지도 멈춰요.
+        </p>
+      </div>
+
+      {/* 방금 들린 소리 */}
+      {latest && (
+        <div key={latest.id} className="pop-in mt-8 w-full max-w-3xl rounded-3xl bg-white/10 p-5">
+          <div className="flex items-center justify-between text-sm text-white/60">
+            <span>방금 들린 소리 · {timeText(latest.at)}</span>
             <span>
-              문제 {round + 1} / {ROUNDS}
+              {latest.saved === "saving" && "💾 저장 중…"}
+              {latest.saved === "saved" && "✅ 저장됨"}
+              {latest.saved === "failed" && <span className="text-red-300">⚠️ 저장 실패</span>}
             </span>
-            <span className="flex gap-1">
-              {Array.from({ length: ROUNDS }, (_, i) => (
-                <span
-                  key={i}
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    i < history.length ? (history[i].ok ? "bg-emerald-400" : "bg-red-400") : i === round ? "bg-white" : "bg-white/20"
-                  }`}
-                />
-              ))}
-            </span>
-            <span className="text-lg font-black text-amber-300">{score}점</span>
           </div>
-
-          <div key={round} className="pop-in w-full rounded-3xl bg-white/10 p-6 text-center">
-            <div className="text-sm text-white/60">이 소리를 내 주세요</div>
-            <div className="mt-2 text-7xl">{targetOf(currentTarget).emoji}</div>
-            <div className="mt-2 text-3xl font-black">{targetOf(currentTarget).label}</div>
-            <div className="mt-2 text-white/70">{targetOf(currentTarget).tip}</div>
-            <div className="mt-3 text-sm text-white/50">
-              남은 기회 {"❤️".repeat(Math.max(0, TRIES - tries))}
-              {"🖤".repeat(Math.min(TRIES, tries))}
-            </div>
-          </div>
-
-          {phase === "ask" && <ListenButton status={rec.status} onListen={listenMission} label="🎙️ 준비됐어요!" />}
-
-          {phase === "judged" && result && (
+          <Waveform clip={latest.clip} />
+          {latest.quiet ? (
+            <p className="mt-3 text-center text-lg">🔈 작은 소리가 들렸어요 — 너무 작아서 무슨 소리인지는 모르겠어요</p>
+          ) : (
             <>
-              <div
-                className={`pop-in rounded-2xl px-6 py-3 text-center text-2xl font-black ${
-                  verdict === "hit" ? "bg-emerald-500/30 text-emerald-200" : verdict === "close" ? "bg-amber-500/30 text-amber-200" : "bg-red-500/30 text-red-200"
-                }`}
-              >
-                {verdict === "hit" && `🎉 정답! +${POINTS[Math.min(tries - 1, POINTS.length - 1)]}점`}
-                {verdict === "close" && `😮 아깝다! 2등으로 짐작했어요`}
-                {verdict === "miss" && `🤔 ${result.guesses[0].emoji} ${result.guesses[0].label}(으)로 들렸어요`}
+              <p className="mt-3 text-center text-2xl font-black">
+                {latest.guesses[0].emoji} {latest.guesses[0].label} 같아요
+              </p>
+              <p className="mt-1 text-center text-sm text-white/60">
+                {latest.guesses[0].why} · 아니면 {latest.guesses[1].emoji} {latest.guesses[1].label}
+              </p>
+              <div className="mt-4 space-y-1.5">
+                {latest.guesses.map((g, i) => (
+                  <div key={g.id} className="flex items-center gap-2 text-sm">
+                    <span className="w-7 text-center">{g.emoji}</span>
+                    <span className="w-36 truncate text-white/80">{g.label}</span>
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={`h-full rounded-full ${i === 0 ? "bg-emerald-400" : "bg-white/35"}`}
+                        style={{ width: `${Math.round(g.score * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="flex gap-3">
-                {verdict !== "hit" && !outOfTries && (
-                  <button
-                    onClick={() => {
-                      setPhase("ask");
-                      listenMission();
-                    }}
-                    className="rounded-2xl bg-white/15 px-6 py-3 text-lg font-bold hover:bg-white/25"
-                  >
-                    🔁 다시 해 보기
-                  </button>
-                )}
-                <button
-                  onClick={nextRound}
-                  className="rounded-2xl bg-gradient-to-r from-pink-500 to-violet-500 px-6 py-3 text-lg font-bold"
-                >
-                  {round + 1 >= ROUNDS ? "결과 보기 ▶" : verdict === "hit" ? "다음 문제 ▶" : "넘어가기 ▶"}
-                </button>
-              </div>
-              <ResultPanel result={result} highlight={currentTarget} />
             </>
           )}
         </div>
       )}
 
-      {mode === "mission" && phase === "done" && (
-        <div className="pop-in mt-10 flex w-full max-w-md flex-col items-center gap-4 rounded-3xl bg-white/10 p-8 text-center">
-          <div className="text-6xl">{score >= 600 ? "🏆" : score >= 350 ? "🥈" : "🎖️"}</div>
-          <div className="text-4xl font-black text-amber-300">{score}점</div>
-          <div className="text-white/70">
-            {history.filter((h) => h.ok).length} / {ROUNDS} 문제 성공
-            {score >= best && score > 0 && " · 새 최고 기록!"}
-          </div>
-          <div className="flex flex-wrap justify-center gap-2 text-2xl">
-            {history.map((h, i) => (
-              <span key={i} className={h.ok ? "" : "opacity-30 grayscale"}>
-                {targetOf(h.target).emoji}
+      {/* 이번에 들린 소리 모음 */}
+      {detections.length > 0 && (
+        <div className="mt-4 w-full max-w-3xl rounded-2xl bg-white/5 p-4">
+          <div className="mb-2 text-sm text-white/60">이번에 들린 소리</div>
+          <div className="flex flex-wrap gap-2">
+            {[...tally.values()].map((t) => (
+              <span key={t.label} className="rounded-full bg-white/10 px-3 py-1 text-sm">
+                {t.emoji} {t.label} <b className="text-amber-300">×{t.count}</b>
               </span>
             ))}
           </div>
-          <div className="mt-2 flex gap-3">
-            <button onClick={startMission} className="rounded-2xl bg-gradient-to-r from-pink-500 to-violet-500 px-6 py-3 font-bold">
-              다시 하기
-            </button>
-            <button onClick={goMenu} className="rounded-2xl bg-white/15 px-6 py-3 font-bold">
-              메뉴
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LevelBar({ level, status }: { level: number; status: string }) {
-  return (
-    <div className="mt-6 w-full max-w-3xl">
-      <div className="h-3 overflow-hidden rounded-full bg-white/10">
-        <div
-          className={`h-full rounded-full transition-[width] duration-75 ${
-            status === "recording" ? "bg-gradient-to-r from-red-400 to-pink-500" : "bg-gradient-to-r from-emerald-400 to-cyan-400"
-          }`}
-          style={{ width: `${Math.round(level * 100)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ListenButton({ status, onListen, label }: { status: string; onListen: () => void; label: string }) {
-  const waiting = status === "armed";
-  const recording = status === "recording";
-  return (
-    <div className="relative flex h-44 w-44 items-center justify-center">
-      {(waiting || recording) && (
-        <span className={`ring-pulse absolute inset-0 rounded-full ${recording ? "bg-red-500/50" : "bg-cyan-400/40"}`} />
-      )}
-      <button
-        onClick={onListen}
-        disabled={waiting || recording}
-        className={`relative z-10 h-40 w-40 rounded-full text-xl font-black shadow-2xl transition-transform hover:scale-105 disabled:hover:scale-100 ${
-          recording ? "bg-red-500" : waiting ? "bg-cyan-600" : "bg-gradient-to-br from-pink-500 to-violet-600"
-        }`}
-      >
-        {recording ? "🔴 듣는 중…" : waiting ? "👂 소리를 내 보세요!" : label}
-      </button>
-    </div>
-  );
-}
-
-function ResultPanel({ result, highlight }: { result: Result; highlight?: string }) {
-  const { guesses, features, clip } = result;
-  const top = guesses[0];
-  const tooQuiet = features.peak < 0.05;
-  return (
-    <div className="pop-in w-full rounded-3xl bg-white/10 p-5">
-      <Waveform clip={clip} />
-      {tooQuiet ? (
-        <p className="mt-4 text-center text-white/70">소리가 너무 작았어요. 마이크 가까이에서 다시 해 보세요!</p>
-      ) : (
-        <>
-          <div className="mt-4 text-center">
-            <div className="text-sm text-white/60">컴퓨터의 짐작</div>
-            <div className="text-5xl">{top.emoji}</div>
-            <div className="text-2xl font-black">{top.label}</div>
-            <div className="mt-1 text-sm text-white/60">왜냐하면: {top.why}</div>
-          </div>
-          <div className="mt-5 space-y-2">
-            {guesses.map((g) => (
-              <div key={g.id} className="flex items-center gap-3">
-                <span className="w-8 text-center text-xl">{g.emoji}</span>
-                <span className={`w-40 truncate text-sm ${g.id === highlight ? "font-black text-amber-300" : "text-white/80"}`}>
-                  {g.label}
-                </span>
-                <div className="h-3 flex-1 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full ${g.id === highlight ? "bg-amber-400" : g.id === top.id ? "bg-pink-400" : "bg-white/40"}`}
-                    style={{ width: `${Math.round(g.score * 100)}%` }}
-                  />
-                </div>
-                <span className="w-10 text-right text-xs text-white/60">{Math.round(g.score * 100)}</span>
+          <div className="mt-3 space-y-1 text-sm text-white/70">
+            {detections.slice(0, 8).map((d) => (
+              <div key={d.id} className="flex justify-between">
+                <span>{d.quiet ? "🔈 작은 소리" : `${d.guesses[0].emoji} ${d.guesses[0].label}`}</span>
+                <span className="text-white/40">{timeText(d.at)}</span>
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
-      <div className="mt-5 grid grid-cols-2 gap-2 text-xs text-white/60 sm:grid-cols-4">
-        <Stat label="길이" value={`${Math.round(features.durationMs)}ms`} />
-        <Stat label="시작 속도" value={`${Math.round(features.attackMs)}ms`} />
-        <Stat label="음 높이" value={`${Math.round(features.centroid)}Hz`} />
-        <Stat label="들쭉날쭉" value={features.wobble.toFixed(2)} />
-      </div>
-    </div>
-  );
-}
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-white/5 p-2 text-center">
-      <div>{label}</div>
-      <div className="text-sm font-bold text-white">{value}</div>
+      {/* 저장 파일함 (비밀번호) */}
+      <div className="mt-8 w-full max-w-3xl rounded-3xl border border-white/10 bg-black/30 p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-black">{unlocked ? "🔓" : "🔒"} 저장된 소리 파일</h2>
+          {unlocked && (
+            <button onClick={lock} className="rounded-full bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20">
+              🔒 다시 잠그기
+            </button>
+          )}
+        </div>
+
+        {!unlocked ? (
+          <form
+            className="mt-4 flex flex-col items-center gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void tryUnlock();
+            }}
+          >
+            <p className="text-sm text-white/60">비밀번호를 입력해야 파일을 듣고 내려받을 수 있어요</p>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={8}
+              value={pin}
+              onChange={(e) => {
+                setPin(e.target.value.replace(/\D/g, ""));
+                setPinError(false);
+              }}
+              placeholder="● ● ● ●"
+              className="w-40 rounded-xl bg-white/10 px-4 py-3 text-center text-2xl tracking-[0.4em] outline-none focus:ring-2 focus:ring-amber-400"
+            />
+            {pinError && <p className="text-sm text-red-300">비밀번호가 틀렸어요</p>}
+            <button type="submit" className="rounded-xl bg-amber-400 px-6 py-2 font-bold text-slate-900">
+              열기
+            </button>
+          </form>
+        ) : (
+          <div className="mt-4">
+            {filesError && <p className="text-sm text-red-300">{filesError}</p>}
+            {files.length === 0 && !filesError && (
+              <p className="text-center text-white/50">아직 저장된 소리가 없어요. 감지를 켜 두면 여기에 쌓여요.</p>
+            )}
+            <ul className="space-y-2">
+              {files.map((f) => (
+                <li key={f.id} className="flex flex-wrap items-center gap-3 rounded-2xl bg-white/5 p-3">
+                  <span className="text-3xl">{f.emoji}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-bold">{f.label}</div>
+                    <div className="text-xs text-white/50">
+                      {dateTimeText(f.at)} · {(f.durationMs / 1000).toFixed(1)}초
+                      {f.secondLabel && f.guessId !== "quiet" && ` · 아니면 ${f.secondLabel}`}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => play(f)}
+                      className={`rounded-xl px-4 py-2 font-bold ${playingId === f.id ? "bg-red-500" : "bg-emerald-500"}`}
+                    >
+                      {playingId === f.id ? "⏹ 멈춤" : "▶ 듣기"}
+                    </button>
+                    <button onClick={() => download(f)} className="rounded-xl bg-white/10 px-3 py-2 hover:bg-white/20" title="내려받기">
+                      ⬇️
+                    </button>
+                    <button onClick={() => void remove(f)} className="rounded-xl bg-white/10 px-3 py-2 hover:bg-red-500/40" title="삭제">
+                      🗑️
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {files.length > 0 && (
+              <div className="mt-4 flex justify-end gap-2 text-sm">
+                {confirmClear ? (
+                  <>
+                    <span className="self-center text-red-300">{files.length}개를 모두 지울까요?</span>
+                    <button onClick={() => void removeAll()} className="rounded-lg bg-red-500 px-3 py-1.5 font-bold">
+                      모두 지우기
+                    </button>
+                    <button onClick={() => setConfirmClear(false)} className="rounded-lg bg-white/10 px-3 py-1.5">
+                      취소
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmClear(true)} className="rounded-lg bg-white/10 px-3 py-1.5 text-white/70">
+                    🗑️ 전체 삭제
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -458,8 +502,8 @@ function Waveform({ clip }: { clip: Clip }) {
     const scale = peak > 0 ? 1 / peak : 1;
     const step = samples.length / width;
     const gradient = ctx.createLinearGradient(0, 0, width, 0);
-    gradient.addColorStop(0, "#22d3ee");
-    gradient.addColorStop(1, "#f472b6");
+    gradient.addColorStop(0, "#34d399");
+    gradient.addColorStop(1, "#22d3ee");
     ctx.fillStyle = gradient;
     for (let x = 0; x < width; x++) {
       let max = 0;
@@ -470,5 +514,5 @@ function Waveform({ clip }: { clip: Clip }) {
       ctx.fillRect(x, height / 2 - h, 1, h * 2);
     }
   }, [clip]);
-  return <canvas ref={canvasRef} className="h-20 w-full rounded-xl bg-black/30" />;
+  return <canvas ref={canvasRef} className="mt-3 h-16 w-full rounded-xl bg-black/30" />;
 }
