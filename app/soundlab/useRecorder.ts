@@ -17,6 +17,8 @@ export const DEFAULT_START_LEVEL = 0.05;
 const STOP_RATIO = 0.45;
 const STOP_AFTER_MS = 600;
 const MAX_RECORD_MS = 6000;
+/** 수동 녹음은 사용자가 끌 때까지 이어지지만, 켜 둔 채 잊으면 메모리가 넘치므로 이 길이에서 저장하고 끝낸다. */
+export const MAX_MANUAL_MS = 5 * 60 * 1000;
 /** 소리가 시작되기 직전을 얼마나 담아 둘지 */
 const PRE_ROLL_MS = 150;
 const CHUNK = 1024;
@@ -40,6 +42,8 @@ export function useRecorder() {
   const recordedMsRef = useRef(0);
   const onClipRef = useRef<((clip: Clip) => void) | null>(null);
   const startLevelRef = useRef(DEFAULT_START_LEVEL);
+  /** true 면 조용해져도 멈추지 않고 finishManual 을 부를 때까지 녹음한다. */
+  const manualRef = useRef(false);
   const levelRef = useRef(0);
 
   const stop = useCallback(() => {
@@ -61,10 +65,17 @@ export function useRecorder() {
     const ctx = ctxRef.current;
     const chunks = chunksRef.current;
     chunksRef.current = [];
-    // 한 소리를 저장하는 동안에도 다음 소리를 놓치지 않도록 바로 다시 기다린다.
-    modeRef.current = "armed";
     preRef.current = [];
-    setStatus("armed");
+    if (manualRef.current) {
+      // 수동 녹음은 한 번 끝나면 다시 켤 때까지 쉰다.
+      manualRef.current = false;
+      modeRef.current = "idle";
+      setStatus("idle");
+    } else {
+      // 한 소리를 저장하는 동안에도 다음 소리를 놓치지 않도록 바로 다시 기다린다.
+      modeRef.current = "armed";
+      setStatus("armed");
+    }
     if (!ctx || chunks.length === 0) return;
     const total = chunks.reduce((n, c) => n + c.length, 0);
     const samples = new Float32Array(total);
@@ -119,7 +130,11 @@ export function useRecorder() {
           chunksRef.current.push(data);
           recordedMsRef.current += chunkMs;
           quietMsRef.current = rms < startLevelRef.current * STOP_RATIO ? quietMsRef.current + chunkMs : 0;
-          if (quietMsRef.current >= STOP_AFTER_MS || recordedMsRef.current >= MAX_RECORD_MS) finish();
+          if (manualRef.current) {
+            if (recordedMsRef.current >= MAX_MANUAL_MS) finish();
+          } else if (quietMsRef.current >= STOP_AFTER_MS || recordedMsRef.current >= MAX_RECORD_MS) {
+            finish();
+          }
         }
       };
       source.connect(node);
@@ -136,14 +151,34 @@ export function useRecorder() {
   const listen = useCallback((onClip: (clip: Clip) => void) => {
     if (!ctxRef.current) return;
     onClipRef.current = onClip;
+    manualRef.current = false;
     preRef.current = [];
     chunksRef.current = [];
     modeRef.current = "armed";
     setStatus("armed");
   }, []);
 
+  /** 지금 바로 녹음을 시작한다. finishManual 을 부를 때까지 조용해져도 멈추지 않는다. */
+  const recordManual = useCallback((onClip: (clip: Clip) => void) => {
+    if (!ctxRef.current) return;
+    onClipRef.current = onClip;
+    manualRef.current = true;
+    preRef.current = [];
+    chunksRef.current = [];
+    quietMsRef.current = 0;
+    recordedMsRef.current = 0;
+    modeRef.current = "recording";
+    setStatus("recording");
+  }, []);
+
+  /** 수동 녹음을 끝내고 지금까지 녹음한 소리를 onClip 으로 넘긴다. */
+  const finishManual = useCallback(() => {
+    if (modeRef.current === "recording" && manualRef.current) finish();
+  }, [finish]);
+
   const cancel = useCallback(() => {
     if (!ctxRef.current) return;
+    manualRef.current = false;
     modeRef.current = "idle";
     chunksRef.current = [];
     setStatus("idle");
@@ -165,5 +200,5 @@ export function useRecorder() {
     startLevelRef.current = startLevel;
   }, []);
 
-  return { status, level, start, stop, listen, cancel, setSensitivity };
+  return { status, level, start, stop, listen, cancel, setSensitivity, recordManual, finishManual };
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { analyze, classify, type Guess } from "./soundClassify";
 import { clearSounds, deleteSound, listSounds, type SavedSound, saveSound, toWav } from "./soundStore";
-import { type Clip, DEFAULT_START_LEVEL, useRecorder } from "./useRecorder";
+import { type Clip, DEFAULT_START_LEVEL, MAX_MANUAL_MS, useRecorder } from "./useRecorder";
 
 /**
  * 저장 파일을 여는 비밀번호.
@@ -18,6 +18,9 @@ const SENSITIVITY = [
   { id: "low", label: "둔감 (큰 소리만)", level: 0.11 },
 ] as const;
 type SensitivityId = (typeof SENSITIVITY)[number]["id"];
+
+/** manual: 버튼으로 켜고 끈다(끌 때까지 계속 녹음). auto: 소리가 날 때마다 알아서 녹음하고 끝낸다. */
+type RecordMode = "manual" | "auto";
 
 /** 저장된 소리를 들을 때 키우는 배율. 멀리서 녹음된 작은 소리도 잘 들리게 한다. */
 const PLAY_BOOST = 5;
@@ -35,7 +38,11 @@ interface Detection {
 }
 
 function timeText(at: number) {
-  return new Date(at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(at).toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function dateTimeText(at: number) {
@@ -48,13 +55,21 @@ function dateTimeText(at: number) {
   });
 }
 
+function clockText(ms: number) {
+  const sec = Math.floor(ms / 1000);
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+
 function newId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export default function SoundDetectorPage() {
   const rec = useRecorder();
-  const { listen, setSensitivity: setRecSensitivity, start, stop } = rec;
+  const { finishManual, listen, recordManual, setSensitivity: setRecSensitivity, start, stop } = rec;
+  const [recordMode, setRecordMode] = useState<RecordMode>("manual");
+  const [recStartedAt, setRecStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
   const [sensitivity, setSensitivity] = useState<SensitivityId>("normal");
   const [detections, setDetections] = useState<Detection[]>([]);
 
@@ -72,6 +87,14 @@ export default function SoundDetectorPage() {
   const unlockedRef = useRef(false);
 
   const listening = rec.status === "armed" || rec.status === "recording";
+  const manualRecording = recordMode === "manual" && rec.status === "recording";
+
+  // 수동 녹음 중 경과 시간 표시
+  useEffect(() => {
+    if (!manualRecording) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [manualRecording]);
   const micOpen = listening || rec.status === "idle";
 
   const stopPlayback = useCallback(() => {
@@ -86,7 +109,14 @@ export default function SoundDetectorPage() {
     const features = analyze(clip.samples, clip.sampleRate);
     const guesses = classify(features);
     const quiet = features.peak < QUIET_PEAK;
-    const detection: Detection = { id: newId(), at: Date.now(), clip, guesses, quiet, saved: "saving" };
+    const detection: Detection = {
+      id: newId(),
+      at: Date.now(),
+      clip,
+      guesses,
+      quiet,
+      saved: "saving",
+    };
     setDetections((list) => [detection, ...list].slice(0, 30));
 
     const top = guesses[0];
@@ -125,6 +155,30 @@ export default function SoundDetectorPage() {
     if (rec.status !== "idle") await start();
     listen(onClip);
   }, [listen, listening, onClip, rec.status, start, stop]);
+
+  const toggleManual = useCallback(async () => {
+    if (manualRecording) {
+      // 지금까지 녹음한 것을 넘겨 저장한 뒤 마이크를 완전히 끈다.
+      finishManual();
+      stop();
+      setRecStartedAt(null);
+      return;
+    }
+    if (rec.status !== "idle") await start();
+    const at = Date.now();
+    setRecStartedAt(at);
+    setNow(at);
+    recordManual(onClip);
+  }, [finishManual, manualRecording, onClip, rec.status, recordManual, start, stop]);
+
+  const switchMode = useCallback(
+    (next: RecordMode) => {
+      if (next === recordMode) return;
+      // 녹음·감지 중에 모드를 바꾸면 반쯤 녹음된 소리가 사라지므로, 켜져 있을 땐 버튼을 막아 둔다.
+      setRecordMode(next);
+    },
+    [recordMode],
+  );
 
   const changeSensitivity = useCallback(
     (id: SensitivityId) => {
@@ -238,21 +292,45 @@ export default function SoundDetectorPage() {
     <div className="relative flex min-h-screen flex-col items-center bg-gradient-to-b from-slate-950 via-indigo-950 to-slate-950 px-4 pb-16 text-white">
       <style jsx global>{`
         @keyframes radarSweep {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
         }
-        .radar-sweep { animation: radarSweep 2.4s linear infinite; }
+        .radar-sweep {
+          animation: radarSweep 2.4s linear infinite;
+        }
         @keyframes ringPulse {
-          0% { transform: scale(0.6); opacity: 0.9; }
-          100% { transform: scale(1.6); opacity: 0; }
+          0% {
+            transform: scale(0.6);
+            opacity: 0.9;
+          }
+          100% {
+            transform: scale(1.6);
+            opacity: 0;
+          }
         }
-        .ring-pulse { animation: ringPulse 0.9s ease-out infinite; }
+        .ring-pulse {
+          animation: ringPulse 0.9s ease-out infinite;
+        }
         @keyframes popIn {
-          0% { transform: scale(0.6); opacity: 0; }
-          70% { transform: scale(1.08); opacity: 1; }
-          100% { transform: scale(1); }
+          0% {
+            transform: scale(0.6);
+            opacity: 0;
+          }
+          70% {
+            transform: scale(1.08);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(1);
+          }
         }
-        .pop-in { animation: popIn 0.3s ease-out; }
+        .pop-in {
+          animation: popIn 0.3s ease-out;
+        }
       `}</style>
 
       <div className="flex w-full max-w-3xl items-center justify-between py-4">
@@ -263,7 +341,7 @@ export default function SoundDetectorPage() {
       </div>
 
       <h1 className="mt-1 text-center text-4xl font-black tracking-tight sm:text-5xl">📡 근처 소리 탐지기</h1>
-      <p className="mt-2 text-center text-white/70">주변에서 소리가 나면 자동으로 녹음·저장하고 무슨 소리인지 알려 줘요</p>
+      <p className="mt-2 text-center text-white/70">주변 소리를 녹음·저장하고 무슨 소리인지 알려 줘요</p>
 
       {/* 레이더 */}
       <div className="relative mt-8 flex h-64 w-64 items-center justify-center sm:h-72 sm:w-72">
@@ -273,21 +351,40 @@ export default function SoundDetectorPage() {
         {listening && (
           <div
             className="radar-sweep absolute inset-0 rounded-full"
-            style={{ background: "conic-gradient(from 0deg, rgba(52,211,153,0.45), transparent 25%)" }}
+            style={{
+              background: "conic-gradient(from 0deg, rgba(52,211,153,0.45), transparent 25%)",
+            }}
           />
         )}
         {rec.status === "recording" && <span className="ring-pulse absolute inset-[20%] rounded-full bg-red-500/40" />}
         {/* 소리 크기만큼 가운데 원이 커진다 */}
         <div
           className={`absolute rounded-full transition-all duration-75 ${rec.status === "recording" ? "bg-red-500/60" : "bg-emerald-400/40"}`}
-          style={{ width: `${16 + rec.level * 80}%`, height: `${16 + rec.level * 80}%` }}
+          style={{
+            width: `${16 + rec.level * 80}%`,
+            height: `${16 + rec.level * 80}%`,
+          }}
         />
         <div key={latest?.id} className="pop-in relative z-10 text-center">
           <div className="text-6xl">
-            {rec.status === "recording" ? "🔴" : latest ? (latest.quiet ? "🔈" : latest.guesses[0].emoji) : listening ? "👂" : "📡"}
+            {rec.status === "recording"
+              ? "🔴"
+              : latest
+                ? latest.quiet
+                  ? "🔈"
+                  : latest.guesses[0].emoji
+                : listening
+                  ? "👂"
+                  : "📡"}
           </div>
           <div className="mt-1 text-sm font-bold text-white/80">
-            {rec.status === "recording" ? "소리 녹음 중…" : listening ? "듣는 중…" : "꺼짐"}
+            {manualRecording && recStartedAt !== null
+              ? `녹음 중 ${clockText(now - recStartedAt)}`
+              : rec.status === "recording"
+                ? "소리 녹음 중…"
+                : listening
+                  ? "듣는 중…"
+                  : "꺼짐"}
           </div>
         </div>
       </div>
@@ -308,28 +405,69 @@ export default function SoundDetectorPage() {
       )}
 
       <div className="mt-6 flex flex-col items-center gap-3">
-        <button
-          onClick={() => void toggleDetect()}
-          disabled={rec.status === "asking"}
-          className={`rounded-2xl px-10 py-4 text-2xl font-black shadow-lg transition-transform hover:scale-105 disabled:opacity-60 ${
-            listening ? "bg-white/15" : "bg-gradient-to-r from-emerald-500 to-cyan-500"
-          }`}
-        >
-          {rec.status === "asking" ? "허락을 기다리는 중…" : listening ? "⏹ 감지 멈추기" : "👂 감지 시작"}
-        </button>
-        <div className="flex flex-wrap justify-center gap-2">
-          {SENSITIVITY.map((s) => (
+        <div className="flex rounded-full bg-white/10 p-1">
+          {(
+            [
+              ["manual", "✋ 수동 녹음"],
+              ["auto", "📡 자동 감지"],
+            ] as const
+          ).map(([id, label]) => (
             <button
-              key={s.id}
-              onClick={() => changeSensitivity(s.id)}
-              className={`rounded-full px-3 py-1.5 text-sm ${
-                sensitivity === s.id ? "bg-amber-400 font-bold text-slate-900" : "bg-white/10 text-white/80"
-              }`}
+              key={id}
+              onClick={() => switchMode(id)}
+              disabled={listening || rec.status === "asking"}
+              className={`rounded-full px-4 py-1.5 text-sm font-bold disabled:cursor-not-allowed ${
+                recordMode === id ? "bg-white text-slate-900" : "text-white/70"
+              } ${listening && recordMode !== id ? "opacity-40" : ""}`}
             >
-              {s.label}
+              {label}
             </button>
           ))}
         </div>
+
+        {recordMode === "manual" ? (
+          <>
+            <button
+              onClick={() => void toggleManual()}
+              disabled={rec.status === "asking"}
+              className={`rounded-2xl px-10 py-4 text-2xl font-black shadow-lg transition-transform hover:scale-105 disabled:opacity-60 ${
+                manualRecording ? "bg-red-500" : "bg-gradient-to-r from-rose-500 to-orange-500"
+              }`}
+            >
+              {rec.status === "asking" ? "허락을 기다리는 중…" : manualRecording ? "⏹ 녹음 끝" : "🔴 녹음 시작"}
+            </button>
+            <p className="text-sm text-white/60">
+              {manualRecording && recStartedAt !== null
+                ? `녹음 중 ${clockText(now - recStartedAt)} — 끝을 누를 때까지 계속 녹음해요 (최대 ${MAX_MANUAL_MS / 60000}분)`
+                : "시작을 누르면 끝을 누를 때까지 계속 녹음해요"}
+            </p>
+          </>
+        ) : (
+          <button
+            onClick={() => void toggleDetect()}
+            disabled={rec.status === "asking"}
+            className={`rounded-2xl px-10 py-4 text-2xl font-black shadow-lg transition-transform hover:scale-105 disabled:opacity-60 ${
+              listening ? "bg-white/15" : "bg-gradient-to-r from-emerald-500 to-cyan-500"
+            }`}
+          >
+            {rec.status === "asking" ? "허락을 기다리는 중…" : listening ? "⏹ 감지 멈추기" : "👂 감지 시작"}
+          </button>
+        )}
+        {recordMode === "auto" && (
+          <div className="flex flex-wrap justify-center gap-2">
+            {SENSITIVITY.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => changeSensitivity(s.id)}
+                className={`rounded-full px-3 py-1.5 text-sm ${
+                  sensitivity === s.id ? "bg-amber-400 font-bold text-slate-900" : "bg-white/10 text-white/80"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
         {rec.status === "denied" && (
           <p className="max-w-md rounded-xl bg-red-500/20 p-3 text-center text-sm text-red-200">
             마이크를 쓸 수 없어요. 주소창 옆 🔒 를 눌러 마이크를 허용한 뒤 다시 눌러 주세요.
@@ -339,7 +477,7 @@ export default function SoundDetectorPage() {
           <p className="rounded-xl bg-red-500/20 p-3 text-sm text-red-200">이 브라우저는 마이크를 지원하지 않아요.</p>
         )}
         <p className="text-center text-xs text-white/40">
-          녹음은 이 기기의 브라우저 안에만 저장되고 어디에도 보내지 않아요. 페이지를 닫으면 감지도 멈춰요.
+          녹음은 이 기기의 브라우저 안에만 저장되고 어디에도 보내지 않아요. 페이지를 닫으면 녹음·감지도 멈춰요.
         </p>
       </div>
 
@@ -468,10 +606,18 @@ export default function SoundDetectorPage() {
                     >
                       {playingId === f.id ? "⏹ 멈춤" : `▶ 듣기 🔊×${PLAY_BOOST}`}
                     </button>
-                    <button onClick={() => download(f)} className="rounded-xl bg-white/10 px-3 py-2 hover:bg-white/20" title="내려받기">
+                    <button
+                      onClick={() => download(f)}
+                      className="rounded-xl bg-white/10 px-3 py-2 hover:bg-white/20"
+                      title="내려받기"
+                    >
                       ⬇️
                     </button>
-                    <button onClick={() => void remove(f)} className="rounded-xl bg-white/10 px-3 py-2 hover:bg-red-500/40" title="삭제">
+                    <button
+                      onClick={() => void remove(f)}
+                      className="rounded-xl bg-white/10 px-3 py-2 hover:bg-red-500/40"
+                      title="삭제"
+                    >
                       🗑️
                     </button>
                   </div>
