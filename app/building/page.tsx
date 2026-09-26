@@ -65,6 +65,23 @@ const BUILDING_LEVELS: BuildingLevel[] = [
   { name: "우주 기지", emoji: "🚀", blocksNeeded: 100000, color: "from-red-400 to-orange-500" },
   { name: "은하수", emoji: "🌌", blocksNeeded: 500000, color: "from-violet-500 to-indigo-600" },
   { name: "블랙홀", emoji: "🕳️", blocksNeeded: 2000000, color: "from-gray-900 to-purple-950" },
+  // 10단계부터는 우주 스케일. 필요 블록은 직전 단계의 약 2.5배씩 늘어난다(마지막 600B).
+  // 배율을 바꾸면 후반 단계가 통째로 도달 불가능해지므로 표 전체를 함께 조정할 것.
+  { name: "초신성", emoji: "💫", blocksNeeded: 5000000, color: "from-orange-400 to-red-500" },
+  { name: "펄사 등대", emoji: "🔦", blocksNeeded: 12000000, color: "from-cyan-400 to-blue-500" },
+  { name: "성운 도시", emoji: "☄️", blocksNeeded: 30000000, color: "from-fuchsia-400 to-purple-600" },
+  { name: "항성 요새", emoji: "⭐", blocksNeeded: 70000000, color: "from-yellow-300 to-amber-500" },
+  { name: "행성 공장", emoji: "🪐", blocksNeeded: 150000000, color: "from-teal-400 to-cyan-600" },
+  { name: "은하 제국", emoji: "👑", blocksNeeded: 350000000, color: "from-amber-300 to-yellow-600" },
+  { name: "웜홀 정거장", emoji: "🛰️", blocksNeeded: 800000000, color: "from-lime-400 to-green-600" },
+  { name: "차원 회랑", emoji: "🌉", blocksNeeded: 2000000000, color: "from-indigo-400 to-blue-700" },
+  { name: "평행우주", emoji: "🔮", blocksNeeded: 4000000000, color: "from-violet-400 to-purple-700" },
+  { name: "다중우주", emoji: "🌐", blocksNeeded: 9000000000, color: "from-sky-400 to-indigo-600" },
+  { name: "시간의 탑", emoji: "⏳", blocksNeeded: 20000000000, color: "from-stone-400 to-amber-700" },
+  { name: "별빛 신전", emoji: "🔱", blocksNeeded: 45000000000, color: "from-yellow-200 to-orange-400" },
+  { name: "창조의 알", emoji: "🥚", blocksNeeded: 100000000000, color: "from-rose-300 to-pink-500" },
+  { name: "우주의 심장", emoji: "💗", blocksNeeded: 250000000000, color: "from-red-400 to-rose-600" },
+  { name: "무한의 왕좌", emoji: "🏆", blocksNeeded: 600000000000, color: "from-amber-200 via-yellow-400 to-amber-600" },
 ];
 
 interface CountryUpgrade {
@@ -90,7 +107,10 @@ const COUNTRIES: CountryUpgrade[] = [
 ];
 
 function formatNumber(n: number): string {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  // 24단계 확장으로 총 블록이 조(1e12) 단위까지 올라간다. 큰 단위부터 검사해야 한다.
+  if (n >= 1e12) return (n / 1e12).toFixed(1) + "T";
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
   return String(Math.floor(n));
 }

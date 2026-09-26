@@ -1191,6 +1191,41 @@ export default function Home() {
                 bg: "from-indigo-500 to-cyan-500",
                 href: "/geometry",
               },
+              {
+                emoji: "💠",
+                title: "나만의 도형 만들기",
+                desc: "도형을 비틀고 당겨 나만의 3D 도형! 퀴즈·3D프린트까지!",
+                bg: "from-fuchsia-500 via-violet-600 to-cyan-500",
+                href: "/shapemaker",
+              },
+              {
+                emoji: "🔥",
+                title: "모닥불 키우기",
+                desc: "10초 뒤 비가 와요! 그전에 불을 최대한 크게!",
+                bg: "from-orange-500 via-red-500 to-amber-600",
+                href: "/campfire",
+              },
+              {
+                emoji: "🌀",
+                title: "착시 만들기",
+                desc: "조각을 옮겨 착시를 완성! 만들기·퍼즐·퀴즈까지",
+                bg: "from-violet-500 via-fuchsia-500 to-indigo-600",
+                href: "/illusion",
+              },
+              {
+                emoji: "🍳",
+                title: "음식 만들기",
+                desc: "씻고 썰고 굽고 끓여서! 진짜 요리 과정 체험",
+                bg: "from-orange-500 via-amber-500 to-red-600",
+                href: "/foodmaker",
+              },
+              {
+                emoji: "🎤",
+                title: "소리 탐정",
+                desc: "박수·휘파람·후~! 내 소리를 컴퓨터가 맞혀요",
+                bg: "from-pink-500 via-violet-600 to-indigo-700",
+                href: "/soundlab",
+              },
             ].map((item) => {
               const Card = (
                 <div
