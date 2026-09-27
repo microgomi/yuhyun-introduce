@@ -23,7 +23,7 @@ type SensitivityId = (typeof SENSITIVITY)[number]["id"];
 type RecordMode = "manual" | "auto";
 
 /** 저장된 소리를 들을 때 키우는 배율. 멀리서 녹음된 작은 소리도 잘 들리게 한다. */
-const PLAY_BOOST = 5;
+const PLAY_BOOST = 500;
 
 /** 너무 작은 소리는 짐작이 의미 없어서 "작은 소리"로만 알려 준다. */
 const QUIET_PEAK = 0.05;
@@ -231,7 +231,7 @@ export default function SoundDetectorPage() {
         source.buffer = buffer;
         const gain = ctx.createGain();
         gain.gain.value = PLAY_BOOST;
-        // 5배로 키우면 원래 큰 소리는 찢어진다. 리미터로 꼭대기만 눌러 작은 소리는 크게, 큰 소리는 깨끗하게.
+        // 크게 키우면 원래 큰 소리는 찢어진다. 리미터로 꼭대기만 눌러 작은 소리는 크게, 큰 소리는 깨끗하게.
         const limiter = ctx.createDynamicsCompressor();
         limiter.threshold.value = -3;
         limiter.knee.value = 0;
