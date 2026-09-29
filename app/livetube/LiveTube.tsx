@@ -9,6 +9,10 @@ import {
   CATEGORIES,
   type Category,
   type CategoryId,
+  COMBO_BONUS,
+  COMBO_WINDOW_MS,
+  type Combo,
+  COMBOS,
   COMMON_CHATS,
   type Food,
   FOODS,
@@ -186,6 +190,12 @@ export default function LiveTube() {
   const liveRef = useRef(false);
   /** 지금 먹고 있는 음식 */
   const eatingRef = useRef<{ food: Food; start: number } | null>(null);
+  /** 최근에 먹은 음식(합체 판정용) */
+  const recentFoodsRef = useRef<{ id: string; at: number }[]>([]);
+  /** 합체 연출 */
+  const comboShowRef = useRef<{ combo: Combo; start: number } | null>(null);
+  /** 합체로 몰려온 시청자가 한 번에 빠지지 않고 천천히 빠지도록 목표 시청자에 더해 둔다 */
+  const comboBoostRef = useRef(0);
   const [eatingId, setEatingId] = useState<string | null>(null);
   /** 목소리로 "라면 먹을게요" 하면 먹도록, 아래에서 만든 eat 을 가리킨다 */
   const eatRef = useRef<(food: Food) => void>(() => {});
@@ -379,6 +389,43 @@ export default function LiveTube() {
         g.fillText(s.fullness <= 0 ? "배고파서 팬이 떠나요!" : "배고파요… 뭐 좀 먹어요!", 22, 120);
       }
 
+      // 합체 연출: 두 음식이 가운데로 모여 특별 요리가 된다
+      const show = comboShowRef.current;
+      if (show) {
+        const t = (now - show.start) / 3500;
+        if (t >= 1) {
+          comboShowRef.current = null;
+        } else {
+          const [a, b] = show.combo.foods.map((id) => FOODS.find((f) => f.id === id)?.emoji ?? "");
+          const cx = WIDTH * 0.36;
+          const cy = HEIGHT * 0.45;
+          g.textAlign = "center";
+          g.fillStyle = `rgba(250,204,21,${0.35 * (1 - t)})`;
+          g.fillRect(0, 0, WIDTH, HEIGHT);
+          if (t < 0.35) {
+            const gap = 220 * (1 - t / 0.35);
+            g.font = "110px sans-serif";
+            g.fillText(a, cx - gap, cy);
+            g.fillText(b, cx + gap, cy);
+          } else {
+            const pop = Math.min(1, (t - 0.35) / 0.15);
+            g.font = `${80 + pop * 90}px sans-serif`;
+            g.fillText(show.combo.emoji, cx, cy);
+            g.font = "bold 44px sans-serif";
+            g.fillStyle = "#fde047";
+            g.strokeStyle = "#7c2d12";
+            g.lineWidth = 6;
+            const label = `${show.combo.name} 합체!`;
+            g.strokeText(label, cx, cy + 110);
+            g.fillText(label, cx, cy + 110);
+            g.font = "bold 30px sans-serif";
+            g.fillStyle = "#fff";
+            g.fillText("👁 +1만  ➕ 구독 +1만", cx, cy + 160);
+          }
+          g.textAlign = "left";
+        }
+      }
+
       // 먹는 중: 음식이 한 입씩 줄어든다
       const eating = eatingRef.current;
       if (eating) {
@@ -497,7 +544,10 @@ export default function LiveTube() {
         5 +
         Math.sqrt(channelRef.current.subs + s.newSubs) * 3 +
         Math.pow(channelRef.current.totalViewers + s.cumViewers, 0.7) * 0.15;
-      const target = fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5)) * hungerFactor * (has(ch, "light") ? 1.25 : 1);
+      const target =
+        fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5)) * hungerFactor * (has(ch, "light") ? 1.25 : 1) +
+        comboBoostRef.current;
+      comboBoostRef.current *= 0.97;
       const viewers = Math.max(1, Math.round(s.viewers + (target - s.viewers) * 0.25 + (Math.random() - 0.5) * Math.max(2, target * 0.05)));
       const cumViewers = s.cumViewers + Math.max(0, viewers - s.viewers) + Math.round(viewers * VIEWER_TURNOVER);
       const likes = s.likes + Math.round(viewers * hype * 0.04 * Math.random());
@@ -624,6 +674,9 @@ export default function LiveTube() {
     recorderRef.current = null;
     liveRef.current = false;
     eatingRef.current = null;
+    recentFoodsRef.current = [];
+    comboShowRef.current = null;
+    comboBoostRef.current = 0;
     setEatingId(null);
     stopSpeech();
     const newChannel: Channel = {
@@ -701,6 +754,35 @@ export default function LiveTube() {
       setStats(statsRef.current);
       burstRef.current = Math.min(1, burstRef.current + food.hype);
       addChat(`${food.emoji} ${food.name} 먹을게요! 잘 먹겠습니다~`, 0, "⭐ 나");
+
+      // 합체: 짝이 되는 음식을 최근에 먹었으면 특별 요리가 되어 시청자·구독자가 확 몰려온다
+      const at = performance.now();
+      const recent = recentFoodsRef.current.filter((r) => at - r.at < COMBO_WINDOW_MS);
+      const combo = COMBOS.find((c) => {
+        const other = c.foods[0] === food.id ? c.foods[1] : c.foods[1] === food.id ? c.foods[0] : null;
+        return other !== null && recent.some((r) => r.id === other);
+      });
+      if (combo) {
+        recentFoodsRef.current = []; // 같은 음식으로 두 번 합체하지 않도록 비운다
+        comboShowRef.current = { combo, start: at };
+        comboBoostRef.current += COMBO_BONUS;
+        const cur = statsRef.current;
+        statsRef.current = {
+          ...cur,
+          viewers: cur.viewers + COMBO_BONUS,
+          peakViewers: Math.max(cur.peakViewers, cur.viewers + COMBO_BONUS),
+          cumViewers: cur.cumViewers + COMBO_BONUS,
+          newSubs: cur.newSubs + COMBO_BONUS,
+        };
+        setStats(statsRef.current);
+        burstRef.current = 1;
+        addChat(`${combo.emoji} ${combo.name} 합체!! 시청자·구독자 +1만`, 0, "📢 알림");
+        for (let i = 0; i < 6; i++)
+          setTimeout(() => liveRef.current && addChat(pick(["와 합체했다!!!", "대박 레시피", "구독했어요!!", "소문 듣고 왔어요", "실검 1위 ㄷㄷ", "이 조합 미쳤다"])), 400 + i * 300);
+        for (let i = 0; i < 12; i++) setTimeout(() => liveRef.current && addHeart(pick([combo.emoji, "🎉", "✨", "❤️"])), i * 120);
+      } else {
+        recentFoodsRef.current = [...recent, { id: food.id, at }];
+      }
       for (let i = 0; i < 3; i++) setTimeout(() => liveRef.current && addHeart(food.emoji), 300 + i * 250);
       setTimeout(() => {
         if (eatingRef.current?.food.id !== food.id) return;
@@ -1004,6 +1086,14 @@ export default function LiveTube() {
                   </button>
                 );
               })}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/60">
+              <span className="font-bold text-amber-300">🔥 합체 레시피 (20초 안에 둘 다 먹기 → 시청자·구독자 +1만)</span>
+              {COMBOS.map((c) => (
+                <span key={c.name} className="rounded-full bg-white/10 px-2 py-0.5">
+                  {c.foods.map((id) => FOODS.find((f) => f.id === id)?.emoji).join("+")}={c.emoji} {c.name}
+                </span>
+              ))}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-5">

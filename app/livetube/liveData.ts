@@ -142,6 +142,24 @@ export const SHOP_ITEMS: ShopItem[] = [
   { id: "pc", emoji: "🖥️", name: "방송용 컴퓨터", price: 80000, effect: "방송이 쾌적해요 — 후원이 2배 자주" },
 ];
 
+export interface Combo {
+  /** 이 두 음식을 COMBO_WINDOW_MS 안에 같이 먹으면 합체한다 */
+  foods: [string, string];
+  emoji: string;
+  name: string;
+}
+
+export const COMBO_WINDOW_MS = 20_000;
+/** 합체하면 갑자기 몰려오는 시청자·구독자 수 */
+export const COMBO_BONUS = 10_000;
+
+export const COMBOS: Combo[] = [
+  { foods: ["ramen", "tteok"], emoji: "🍝", name: "라볶이" },
+  { foods: ["ramen", "gimbap"], emoji: "🍱", name: "분식 세트" },
+  { foods: ["chicken", "pizza"], emoji: "🎉", name: "치킨피자 파티" },
+  { foods: ["burger", "chicken"], emoji: "🍟", name: "버거치킨 콤보" },
+];
+
 /** 배가 고플 때 시청자 채팅 */
 export const HUNGRY_CHATS = ["배고파 보여요 ㅠㅠ", "밥 좀 드세요!", "힘 없어 보여요", "먹방 해주세요~", "라면이라도 드세요"];
 /** 배부름이 0 이 되어 팬이 나갈 때 */
