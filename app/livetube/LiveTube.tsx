@@ -1,0 +1,855 @@
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+
+import {
+  AWARDS,
+  awardFor,
+  BORED_CHATS,
+  CATEGORIES,
+  type Category,
+  type CategoryId,
+  COMMON_CHATS,
+  formatCount,
+  LOUD_CHATS,
+  NICKNAMES,
+  nextAward,
+  pick,
+} from "./liveData";
+import { deleteVideo, listVideos, type SavedVideo, saveVideo } from "./videoStore";
+
+type Phase = "setup" | "live" | "result";
+
+const WIDTH = 960;
+const HEIGHT = 540;
+/** 녹화 영상이 너무 커지지 않도록 이 시간이 되면 방송을 자동으로 끝낸다. */
+const MAX_LIVE_MS = 10 * 60 * 1000;
+const SAVE_KEY = "livetube_channel_v1";
+const CHAT_LINES = 7;
+
+interface Chat {
+  id: number;
+  name: string;
+  text: string;
+  /** 후원 금액(원). 0 이면 일반 채팅 */
+  donation: number;
+}
+
+interface Heart {
+  id: number;
+  x: number;
+  born: number;
+  emoji: string;
+}
+
+interface Channel {
+  subs: number;
+  money: number;
+  broadcasts: number;
+}
+
+interface LiveStats {
+  viewers: number;
+  peakViewers: number;
+  likes: number;
+  newSubs: number;
+  money: number;
+  /** 0~1 지금 방송 분위기 */
+  hype: number;
+  elapsedMs: number;
+}
+
+const EMPTY_STATS: LiveStats = { viewers: 0, peakViewers: 0, likes: 0, newSubs: 0, money: 0, hype: 0, elapsedMs: 0 };
+
+function loadChannel(): Channel {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return { subs: 0, money: 0, broadcasts: 0 };
+    const d = JSON.parse(raw) as Partial<Channel>;
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
+    return { subs: num(d.subs), money: num(d.money), broadcasts: num(d.broadcasts) };
+  } catch {
+    return { subs: 0, money: 0, broadcasts: 0 };
+  }
+}
+
+function saveChannel(channel: Channel) {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(channel));
+  } catch {
+    // 저장이 막혀도 방송은 계속된다.
+  }
+}
+
+function clock(ms: number) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${pad(m)}:${pad(s % 60)}`;
+}
+
+/** 브라우저가 녹화할 수 있는 영상 형식 중 가장 널리 재생되는 것 */
+function pickMimeType(): string {
+  const options = ["video/mp4;codecs=avc1,mp4a", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  return options.find((t) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
+export default function LiveTube() {
+  const [phase, setPhase] = useState<Phase>("setup");
+  const [channel, setChannel] = useState<Channel>(loadChannel);
+  const [title, setTitle] = useState("나의 첫 라이브 방송!");
+  const [categoryId, setCategoryId] = useState<CategoryId>("talk");
+  const category = CATEGORIES.find((c) => c.id === categoryId) ?? CATEGORIES[0];
+
+  const [camStatus, setCamStatus] = useState<"off" | "asking" | "on" | "audio" | "denied">("off");
+  const [stats, setStats] = useState<LiveStats>(EMPTY_STATS);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [lastVideo, setLastVideo] = useState<SavedVideo | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed" | "unsupported">("idle");
+  const [videos, setVideos] = useState<SavedVideo[] | null>(null);
+  const [watching, setWatching] = useState<SavedVideo | null>(null);
+  const [watchUrl, setWatchUrl] = useState<string | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recChunksRef = useRef<Blob[]>([]);
+
+  // 방송 루프가 매 프레임 읽는 값들은 ref 에 둔다(매 프레임 렌더링하지 않도록).
+  const statsRef = useRef<LiveStats>(EMPTY_STATS);
+  const chatsRef = useRef<Chat[]>([]);
+  const heartsRef = useRef<Heart[]>([]);
+  const idRef = useRef(0);
+  const voiceRef = useRef(0);
+  const voiceSumRef = useRef({ sum: 0, n: 0, loud: 0 });
+  const motionRef = useRef(0);
+  const prevFrameRef = useRef<Uint8ClampedArray | null>(null);
+  const burstRef = useRef(0);
+  const startAtRef = useRef(0);
+  const titleRef = useRef(title);
+  const categoryRef = useRef<Category>(category);
+  const channelRef = useRef(channel);
+
+  useEffect(() => {
+    titleRef.current = title;
+    categoryRef.current = category;
+    channelRef.current = channel;
+  }, [title, category, channel]);
+
+  // ── 카메라·마이크 ──
+  const closeMedia = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    void audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+    if (videoElRef.current) videoElRef.current.srcObject = null;
+    setCamStatus("off");
+  }, []);
+
+  const openMedia = useCallback(async () => {
+    if (streamRef.current) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamStatus("denied");
+      return;
+    }
+    setCamStatus("asking");
+    let stream: MediaStream | null = null;
+    let status: "on" | "audio" = "on";
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: true });
+    } catch {
+      // 카메라가 없거나 거절했으면 목소리만이라도 방송한다.
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        status = "audio";
+      } catch {
+        setCamStatus("denied");
+        return;
+      }
+    }
+    streamRef.current = stream;
+    if (status === "on") {
+      // 화면에 붙이지 않는 비디오. 캔버스에 그려서 방송 화면을 만든다.
+      const el = document.createElement("video");
+      el.muted = true;
+      el.playsInline = true;
+      el.srcObject = stream;
+      videoElRef.current = el;
+      void el.play();
+    }
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    audioCtxRef.current = ctx;
+    analyserRef.current = analyser;
+    setCamStatus(status);
+  }, []);
+
+  useEffect(() => closeMedia, [closeMedia]);
+
+  // ── 채팅·하트 ──
+  const addChat = useCallback((text: string, donation = 0, name = pick(NICKNAMES)) => {
+    const chat: Chat = { id: ++idRef.current, name, text, donation };
+    chatsRef.current = [...chatsRef.current, chat].slice(-40);
+    setChats(chatsRef.current);
+  }, []);
+
+  const addHeart = useCallback((emoji = "❤️") => {
+    heartsRef.current.push({ id: ++idRef.current, x: 0.55 + Math.random() * 0.4, born: performance.now(), emoji });
+    statsRef.current = { ...statsRef.current, likes: statsRef.current.likes + 1 };
+  }, []);
+
+  // ── 방송 화면 그리기(녹화되는 화면 그대로) ──
+  useEffect(() => {
+    if (phase !== "live") return;
+    const canvas = canvasRef.current;
+    const g = canvas?.getContext("2d");
+    if (!canvas || !g) return;
+    const probe = document.createElement("canvas");
+    probe.width = 32;
+    probe.height = 18;
+    const pg = probe.getContext("2d", { willReadFrequently: true });
+    const buf = new Float32Array(1024);
+    let raf = 0;
+    let lastProbe = 0;
+
+    const draw = (now: number) => {
+      const s = statsRef.current;
+      const video = videoElRef.current;
+      const hasVideo = camStatus === "on" && video && video.readyState >= 2;
+
+      // 목소리 크기
+      const analyser = analyserRef.current;
+      if (analyser) {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (const v of buf) sum += v * v;
+        const rms = Math.sqrt(sum / buf.length);
+        voiceRef.current = voiceRef.current * 0.8 + rms * 0.2;
+        const acc = voiceSumRef.current;
+        acc.sum += rms;
+        acc.n++;
+        if (rms > 0.25) acc.loud++;
+      }
+
+      // 배경 / 카메라(거울처럼 좌우 반전)
+      if (hasVideo) {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        const scale = Math.max(WIDTH / vw, HEIGHT / vh);
+        const dw = vw * scale;
+        const dh = vh * scale;
+        g.save();
+        g.translate(WIDTH, 0);
+        g.scale(-1, 1);
+        g.drawImage(video, (WIDTH - dw) / 2, (HEIGHT - dh) / 2, dw, dh);
+        g.restore();
+        // 움직임: 아주 작게 줄인 화면을 이전 프레임과 비교
+        if (pg && now - lastProbe > 200) {
+          lastProbe = now;
+          pg.drawImage(video, 0, 0, 32, 18);
+          const data = pg.getImageData(0, 0, 32, 18).data;
+          const prev = prevFrameRef.current;
+          if (prev) {
+            let diff = 0;
+            for (let i = 0; i < data.length; i += 4) diff += Math.abs(data[i + 1] - prev[i + 1]);
+            const m = Math.min(1, diff / (32 * 18) / 25);
+            motionRef.current = motionRef.current * 0.6 + m * 0.4;
+          }
+          prevFrameRef.current = new Uint8ClampedArray(data);
+        }
+      } else {
+        const grad = g.createLinearGradient(0, 0, WIDTH, HEIGHT);
+        grad.addColorStop(0, "#4c1d95");
+        grad.addColorStop(1, "#be185d");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, WIDTH, HEIGHT);
+        // 카메라가 없으면 목소리에 맞춰 캐릭터가 들썩인다
+        const bounce = Math.min(1, voiceRef.current * 6);
+        g.font = `${150 + bounce * 60}px sans-serif`;
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(categoryRef.current.emoji, WIDTH * 0.36, HEIGHT / 2 - bounce * 30);
+        g.font = "bold 22px sans-serif";
+        g.fillStyle = "rgba(255,255,255,0.7)";
+        g.fillText(camStatus === "audio" ? "🎙️ 목소리 방송 중" : "📺 캐릭터 방송 중", WIDTH * 0.36, HEIGHT - 70);
+      }
+
+      // 윗줄: LIVE · 시간 · 시청자
+      g.textAlign = "left";
+      g.textBaseline = "middle";
+      g.fillStyle = "#dc2626";
+      g.beginPath();
+      g.roundRect(20, 18, 86, 34, 6);
+      g.fill();
+      g.fillStyle = "#fff";
+      g.font = "bold 20px sans-serif";
+      g.fillText("● LIVE", 30, 36);
+      g.fillStyle = "rgba(0,0,0,0.55)";
+      g.beginPath();
+      g.roundRect(114, 18, 250, 34, 6);
+      g.fill();
+      g.fillStyle = "#fff";
+      g.fillText(`${clock(s.elapsedMs)}   👁 ${formatCount(s.viewers)}   ❤️ ${formatCount(s.likes)}`, 124, 36);
+
+      // 분위기 막대
+      g.fillStyle = "rgba(0,0,0,0.45)";
+      g.fillRect(20, 60, 200, 8);
+      g.fillStyle = s.hype > 0.6 ? "#f97316" : s.hype > 0.3 ? "#facc15" : "#60a5fa";
+      g.fillRect(20, 60, 200 * s.hype, 8);
+
+      // 채팅창(오른쪽)
+      const boxX = WIDTH - 330;
+      const lines = chatsRef.current.slice(-CHAT_LINES);
+      g.fillStyle = "rgba(0,0,0,0.45)";
+      g.beginPath();
+      g.roundRect(boxX, 80, 310, CHAT_LINES * 40 + 16, 10);
+      g.fill();
+      g.font = "17px sans-serif";
+      lines.forEach((c, i) => {
+        const y = 104 + i * 40;
+        if (c.donation > 0) {
+          g.fillStyle = "rgba(250,204,21,0.9)";
+          g.beginPath();
+          g.roundRect(boxX + 6, y - 16, 298, 34, 6);
+          g.fill();
+          g.fillStyle = "#111";
+          g.fillText(`💰 ${c.name} ${c.donation.toLocaleString()}원: ${c.text}`.slice(0, 26), boxX + 14, y);
+        } else {
+          g.fillStyle = "#a5f3fc";
+          g.fillText(c.name, boxX + 14, y);
+          const nameW = g.measureText(c.name + " ").width;
+          g.fillStyle = "#fff";
+          g.fillText(c.text.slice(0, 18), boxX + 14 + nameW, y);
+        }
+      });
+
+      // 하트가 떠오른다
+      heartsRef.current = heartsRef.current.filter((h) => now - h.born < 2200);
+      g.textAlign = "center";
+      for (const h of heartsRef.current) {
+        const t = (now - h.born) / 2200;
+        g.globalAlpha = 1 - t;
+        g.font = `${30 + t * 16}px sans-serif`;
+        g.fillText(h.emoji, h.x * WIDTH + Math.sin(t * 8 + h.id) * 16, HEIGHT - 30 - t * 300);
+      }
+      g.globalAlpha = 1;
+
+      // 제목(아래)
+      g.textAlign = "left";
+      g.fillStyle = "rgba(0,0,0,0.55)";
+      g.fillRect(0, HEIGHT - 44, WIDTH, 44);
+      g.fillStyle = "#fff";
+      g.font = "bold 20px sans-serif";
+      g.fillText(`${categoryRef.current.emoji} ${titleRef.current}`.slice(0, 40), 20, HEIGHT - 22);
+      g.textAlign = "right";
+      g.font = "16px sans-serif";
+      g.fillStyle = "rgba(255,255,255,0.8)";
+      g.fillText(`구독자 ${formatCount(channelRef.current.subs + s.newSubs)}명`, WIDTH - 20, HEIGHT - 22);
+
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [camStatus, phase]);
+
+  // ── 1초마다: 시청자·좋아요·구독·채팅 계산 ──
+  const endLiveRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (phase !== "live") return;
+    const id = setInterval(() => {
+      const cat = categoryRef.current;
+      const acc = voiceSumRef.current;
+      const voice = acc.n > 0 ? Math.min(1, (acc.sum / acc.n) * 12) : 0;
+      const loud = acc.loud > 3;
+      voiceSumRef.current = { sum: 0, n: 0, loud: 0 };
+      const motion = camStatus === "on" ? motionRef.current : Math.min(1, voice * 0.6);
+      const burst = burstRef.current;
+      burstRef.current *= 0.6;
+
+      const energy = Math.min(1, cat.talk * voice + cat.move * motion + burst);
+      const s = statsRef.current;
+      const hype = s.hype * 0.75 + energy * 0.25;
+      const elapsedMs = performance.now() - startAtRef.current;
+
+      // 원래 구독자가 많을수록, 분위기가 좋을수록 시청자가 몰린다.
+      const fame = 5 + Math.sqrt(channelRef.current.subs + s.newSubs) * 3;
+      const target = fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5));
+      const viewers = Math.max(1, Math.round(s.viewers + (target - s.viewers) * 0.25 + (Math.random() - 0.5) * Math.max(2, target * 0.05)));
+      const likes = s.likes + Math.round(viewers * hype * 0.04 * Math.random());
+      const newSubs = s.newSubs + (Math.random() < hype ? Math.round(viewers * hype * 0.012 * Math.random()) + (hype > 0.3 ? 1 : 0) : 0);
+      let money = s.money;
+
+      // 채팅: 시청자와 분위기에 따라 개수가 달라진다.
+      const chatCount = Math.min(3, Math.floor((viewers / 40) * (0.3 + hype) + Math.random() * 1.2));
+      for (let i = 0; i < chatCount; i++) {
+        const r = Math.random();
+        const text = hype < 0.12 ? pick(BORED_CHATS) : r < 0.65 ? pick(cat.chats) : pick(COMMON_CHATS);
+        addChat(text);
+      }
+      if (loud) addChat(pick(LOUD_CHATS));
+      if (hype < 0.08 && Math.random() < 0.4) addChat(pick(BORED_CHATS));
+      // 슈퍼챗(후원)
+      if (Math.random() < hype * 0.08 * Math.min(1, viewers / 30)) {
+        const amount = pick([1000, 1000, 2000, 5000, 10000]);
+        money += amount;
+        addChat(pick(["최고예요!", "응원해요!!", "과자 사드세요", "계속 방송해주세요"]), amount);
+      }
+      // 분위기가 좋으면 시청자가 하트를 누른다
+      const hearts = Math.floor(hype * 4 * Math.random());
+      for (let i = 0; i < hearts; i++) addHeart(pick(["❤️", "💖", "👍", "🔥"]));
+
+      statsRef.current = {
+        viewers,
+        peakViewers: Math.max(s.peakViewers, viewers),
+        likes: likes + hearts,
+        newSubs,
+        money,
+        hype,
+        elapsedMs,
+      };
+      setStats(statsRef.current);
+      if (elapsedMs >= MAX_LIVE_MS) endLiveRef.current();
+    }, 1000);
+    return () => clearInterval(id);
+  }, [addChat, addHeart, camStatus, phase]);
+
+  // ── 방송 시작 / 종료 ──
+  const startLive = useCallback(async () => {
+    await openMedia();
+    statsRef.current = { ...EMPTY_STATS, viewers: 1 };
+    chatsRef.current = [];
+    heartsRef.current = [];
+    prevFrameRef.current = null;
+    setStats(statsRef.current);
+    setChats([]);
+    setLastVideo(null);
+    setSaveState("idle");
+    startAtRef.current = performance.now();
+    setPhase("live");
+    addChat("방송 시작했다!! 🎉", 0, "📢 알림");
+  }, [addChat, openMedia]);
+
+  // 캔버스가 화면에 붙은 뒤 녹화를 시작한다(캔버스 화면 + 마이크 소리).
+  useEffect(() => {
+    if (phase !== "live" || recorderRef.current) return;
+    const canvas = canvasRef.current;
+    const mimeType = pickMimeType();
+    if (!canvas || typeof MediaRecorder === "undefined" || !canvas.captureStream) return;
+    const out = canvas.captureStream(30);
+    streamRef.current?.getAudioTracks().forEach((t) => out.addTrack(t));
+    const recorder = new MediaRecorder(out, mimeType ? { mimeType, videoBitsPerSecond: 2_500_000 } : undefined);
+    recChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recChunksRef.current.push(e.data);
+    };
+    recorder.start(1000);
+    recorderRef.current = recorder;
+  }, [phase]);
+
+  const endLive = useCallback(() => {
+    const s = statsRef.current;
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    const newChannel: Channel = {
+      subs: channelRef.current.subs + s.newSubs,
+      money: channelRef.current.money + s.money,
+      broadcasts: channelRef.current.broadcasts + 1,
+    };
+    setChannel(newChannel);
+    saveChannel(newChannel);
+    setStats(s);
+    setPhase("result");
+
+    const finish = (blob: Blob | null) => {
+      closeMedia();
+      if (!blob || blob.size === 0) {
+        setSaveState("unsupported");
+        return;
+      }
+      const video: SavedVideo = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        at: Date.now(),
+        title: titleRef.current,
+        categoryEmoji: categoryRef.current.emoji,
+        durationMs: s.elapsedMs,
+        peakViewers: s.peakViewers,
+        likes: s.likes,
+        newSubs: s.newSubs,
+        video: blob,
+      };
+      setSaveState("saving");
+      saveVideo(video)
+        .then(() => {
+          setLastVideo(video);
+          setSaveState("saved");
+          setVideos((list) => (list ? [video, ...list] : list));
+        })
+        .catch((err: unknown) => {
+          console.warn("영상을 저장하지 못했어요", err);
+          setLastVideo(video); // 저장은 못 했어도 지금 한 번은 볼 수 있게
+          setSaveState("failed");
+        });
+    };
+
+    if (!recorder || recorder.state === "inactive") {
+      finish(null);
+      return;
+    }
+    recorder.onstop = () => finish(new Blob(recChunksRef.current, { type: recorder.mimeType || "video/webm" }));
+    recorder.stop();
+  }, [closeMedia]);
+
+  useEffect(() => {
+    endLiveRef.current = endLive;
+  }, [endLive]);
+
+  // ── 방송 중 행동 ──
+  const greet = useCallback(() => {
+    burstRef.current = Math.min(1, burstRef.current + 0.5);
+    addChat("안녕하세요 여러분~!! 👋", 0, "⭐ 나");
+    for (let i = 0; i < 3; i++) setTimeout(() => addChat(pick(["안녕하세요!!", "ㅎㅇㅎㅇ", "반가워요~", "하이하이"])), 300 + i * 400);
+  }, [addChat]);
+
+  const askSubscribe = useCallback(() => {
+    burstRef.current = Math.min(1, burstRef.current + 0.3);
+    addChat("구독 좋아요 알림설정 부탁해요! 🔔", 0, "⭐ 나");
+    const s = statsRef.current;
+    const gained = Math.max(1, Math.round(s.viewers * (0.02 + s.hype * 0.05)));
+    statsRef.current = { ...s, newSubs: s.newSubs + gained };
+    setStats(statsRef.current);
+    setTimeout(() => addChat(`구독했어요!! (+${gained}명)`), 500);
+  }, [addChat]);
+
+  const quiz = useCallback(() => {
+    burstRef.current = Math.min(1, burstRef.current + 0.7);
+    addChat("🎁 퀴즈 이벤트! 맞히면 선물 드려요!", 0, "⭐ 나");
+    for (let i = 0; i < 4; i++) setTimeout(() => addChat(pick(["저요저요!!", "정답 3번!", "선물 주세요 ㅠㅠ", "와 이벤트다", "제가 맞힐래요"])), 300 + i * 350);
+  }, [addChat]);
+
+  // ── 영상 보관함 ──
+  const openLibrary = useCallback(async () => {
+    try {
+      setVideos(await listVideos());
+    } catch {
+      setVideos([]);
+    }
+  }, []);
+
+  const watch = useCallback((v: SavedVideo) => {
+    setWatchUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return URL.createObjectURL(v.video);
+    });
+    setWatching(v);
+  }, []);
+
+  const closeWatch = useCallback(() => {
+    setWatchUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return null;
+    });
+    setWatching(null);
+  }, []);
+
+  const download = useCallback((v: SavedVideo) => {
+    const url = URL.createObjectURL(v.video);
+    const a = document.createElement("a");
+    const ext = v.video.type.includes("mp4") ? "mp4" : "webm";
+    a.href = url;
+    a.download = `라이브_${new Date(v.at).toISOString().slice(0, 16).replace(/[:T]/g, "-")}.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
+  const remove = useCallback(
+    async (v: SavedVideo) => {
+      if (watching?.id === v.id) closeWatch();
+      await deleteVideo(v.id);
+      setVideos((list) => list?.filter((x) => x.id !== v.id) ?? null);
+    },
+    [closeWatch, watching],
+  );
+
+  const award = awardFor(channel.subs);
+  const next = nextAward(channel.subs);
+
+  return (
+    <div className="min-h-screen w-full bg-zinc-950 text-white">
+      {/* 위쪽 바 */}
+      <div className="flex items-center justify-between border-b border-white/10 bg-zinc-900 px-4 py-3">
+        <div className="flex items-center gap-3">
+          {phase !== "live" && (
+            <Link href="/" className="rounded-full bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20">
+              ← 홈
+            </Link>
+          )}
+          <span className="text-xl font-black">
+            <span className="rounded-md bg-red-600 px-1.5">▶</span> 나도 유튜버
+          </span>
+        </div>
+        <div className="text-right text-sm">
+          <div className="font-bold">
+            {award ? `${award.emoji} ` : ""}구독자 {formatCount(channel.subs + (phase === "live" ? stats.newSubs : 0))}명
+          </div>
+          <div className="text-xs text-white/50">
+            💰 {channel.money.toLocaleString()}원 · 방송 {channel.broadcasts}회
+          </div>
+        </div>
+      </div>
+
+      {/* ── 방송 준비 ── */}
+      {phase === "setup" && (
+        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
+          <h1 className="text-center text-3xl font-black sm:text-4xl">🔴 라이브 방송 준비</h1>
+
+          <label className="block">
+            <span className="text-sm text-white/60">방송 제목</span>
+            <input
+              value={title}
+              maxLength={30}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-1 w-full rounded-xl bg-white/10 px-4 py-3 text-lg outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </label>
+
+          <div>
+            <span className="text-sm text-white/60">방송 종류</span>
+            <div className="mt-1 grid grid-cols-3 gap-2 sm:grid-cols-5">
+              {CATEGORIES.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setCategoryId(c.id)}
+                  className={`rounded-xl p-3 text-center ${categoryId === c.id ? "bg-red-600 font-bold" : "bg-white/10 hover:bg-white/20"}`}
+                >
+                  <div className="text-3xl">{c.emoji}</div>
+                  <div className="text-sm">{c.label}</div>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-sm text-white/50">
+              {category.talk >= 0.6
+                ? "💬 이 방송은 말을 많이 할수록 시청자가 좋아해요"
+                : category.move >= 0.6
+                  ? "🕺 이 방송은 많이 움직일수록 시청자가 좋아해요"
+                  : "💬🕺 말도 하고 움직여야 시청자가 좋아해요"}
+            </p>
+          </div>
+
+          <button
+            onClick={() => void startLive()}
+            disabled={camStatus === "asking" || !title.trim()}
+            className="rounded-2xl bg-red-600 py-5 text-2xl font-black shadow-lg transition-transform hover:scale-[1.02] disabled:opacity-50"
+          >
+            {camStatus === "asking" ? "카메라 허락을 기다리는 중…" : "🔴 라이브 시작"}
+          </button>
+          {camStatus === "denied" && (
+            <p className="text-center text-sm text-amber-300">
+              카메라·마이크를 쓸 수 없어서 캐릭터 방송으로 시작해요. 주소창 옆 🔒 에서 허용하면 내 얼굴로 방송할 수 있어요.
+            </p>
+          )}
+          <p className="text-center text-xs text-white/40">
+            방송은 진짜 인터넷에 나가지 않아요. 시청자와 채팅은 게임 속 가상 시청자이고, 녹화 영상은 이 기기에만 저장돼요.
+          </p>
+
+          <div className="rounded-2xl bg-white/5 p-4">
+            <div className="mb-2 text-sm text-white/60">구독자 보상 {next ? `· 다음: ${next.emoji} ${next.label}까지 ${formatCount(next.subs - channel.subs)}명` : "· 전부 모았어요!"}</div>
+            <div className="flex flex-wrap gap-2">
+              {AWARDS.map((a) => (
+                <span key={a.subs} className={`rounded-full px-3 py-1 text-sm ${channel.subs >= a.subs ? "bg-amber-400 font-bold text-zinc-900" : "bg-white/10 text-white/40"}`}>
+                  {a.emoji} {a.label} ({formatCount(a.subs)})
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <VideoLibrary
+            videos={videos}
+            onOpen={() => void openLibrary()}
+            onWatch={watch}
+            onDownload={download}
+            onDelete={(v) => void remove(v)}
+          />
+        </div>
+      )}
+
+      {/* ── 방송 중 ── */}
+      {phase === "live" && (
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 p-3">
+          <div
+            className="relative w-full cursor-pointer overflow-hidden rounded-xl bg-black"
+            onClick={() => {
+              addHeart();
+              // 카메라·마이크가 없어도 화면을 눌러 분위기를 띄울 수 있다
+              burstRef.current = Math.min(1, burstRef.current + 0.08);
+            }}
+            title="화면을 누르면 하트!"
+          >
+            <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} className="block h-auto w-full" />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button onClick={greet} className="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">
+                👋 인사하기
+              </button>
+              <button onClick={askSubscribe} className="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">
+                🔔 구독 부탁
+              </button>
+              <button onClick={quiz} className="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20">
+                🎁 퀴즈 이벤트
+              </button>
+            </div>
+            <button onClick={endLive} className="rounded-xl bg-red-600 px-5 py-2 font-black hover:bg-red-500">
+              ⏹ 방송 종료
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-5">
+            <Stat label="👁 시청자" value={formatCount(stats.viewers)} />
+            <Stat label="📈 최고 시청자" value={formatCount(stats.peakViewers)} />
+            <Stat label="❤️ 좋아요" value={formatCount(stats.likes)} />
+            <Stat label="➕ 새 구독자" value={formatCount(stats.newSubs)} />
+            <Stat label="💰 후원" value={`${stats.money.toLocaleString()}원`} />
+          </div>
+          <p className="text-center text-xs text-white/40">
+            {camStatus === "on" ? "말하고 움직이면 분위기가 올라가요" : "말을 하면 캐릭터가 들썩이고 분위기가 올라가요"} · 화면을 누르면 하트 · 녹화 중 🔴 (최대 10분)
+          </p>
+          {/* 채팅이 스크린 리더에도 읽히도록 텍스트로도 둔다 */}
+          <ul className="sr-only" aria-live="polite">
+            {chats.slice(-3).map((c) => (
+              <li key={c.id}>
+                {c.name}: {c.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── 방송 결과 ── */}
+      {phase === "result" && (
+        <div className="mx-auto flex max-w-2xl flex-col items-center gap-5 px-4 py-8 text-center">
+          <h1 className="text-3xl font-black">📺 방송 끝! 수고했어요</h1>
+          <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat label="⏱ 방송 시간" value={clock(stats.elapsedMs)} />
+            <Stat label="📈 최고 시청자" value={`${formatCount(stats.peakViewers)}명`} />
+            <Stat label="❤️ 좋아요" value={formatCount(stats.likes)} />
+            <Stat label="➕ 새 구독자" value={`${formatCount(stats.newSubs)}명`} />
+            <Stat label="💰 후원" value={`${stats.money.toLocaleString()}원`} />
+            <Stat label="👥 총 구독자" value={`${formatCount(channel.subs)}명`} />
+          </div>
+          {award && channel.subs - stats.newSubs < award.subs && (
+            <div className="rounded-2xl bg-amber-400 px-6 py-4 text-xl font-black text-zinc-900">
+              🎉 {award.emoji} {award.label} 받았어요!
+            </div>
+          )}
+
+          <div className="w-full rounded-2xl bg-white/5 p-4">
+            <div className="mb-2 font-bold">🎬 녹화 영상</div>
+            {saveState === "saving" && <p className="text-white/60">영상 저장 중…</p>}
+            {saveState === "unsupported" && <p className="text-amber-300">이 브라우저는 방송 녹화를 지원하지 않아요. (크롬을 쓰면 녹화돼요)</p>}
+            {saveState === "failed" && <p className="text-amber-300">⚠️ 보관함에 저장하지 못했어요. 지금 내려받아 두세요.</p>}
+            {saveState === "saved" && <p className="text-emerald-300">✅ 영상 보관함에 저장했어요</p>}
+            {lastVideo && (
+              <div className="mt-3 flex justify-center gap-2">
+                <button onClick={() => watch(lastVideo)} className="rounded-xl bg-red-600 px-5 py-2 font-bold">
+                  ▶ 다시 보기
+                </button>
+                <button onClick={() => download(lastVideo)} className="rounded-xl bg-white/10 px-5 py-2 font-bold">
+                  ⬇️ 내려받기
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => setPhase("setup")} className="rounded-2xl bg-white/10 px-8 py-3 text-lg font-bold hover:bg-white/20">
+            🔴 다음 방송 준비
+          </button>
+        </div>
+      )}
+
+      {/* ── 영상 보기 창 ── */}
+      {watching && watchUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4" onClick={closeWatch}>
+          <div className="w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="font-bold">
+                {watching.categoryEmoji} {watching.title}
+              </div>
+              <button onClick={closeWatch} className="rounded-full bg-white/15 px-3 py-1 text-sm">
+                ✕ 닫기
+              </button>
+            </div>
+            <video src={watchUrl} controls autoPlay playsInline className="w-full rounded-xl bg-black" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-white/5 p-3">
+      <div className="text-xs text-white/50">{label}</div>
+      <div className="text-lg font-black">{value}</div>
+    </div>
+  );
+}
+
+function VideoLibrary({
+  videos,
+  onOpen,
+  onWatch,
+  onDownload,
+  onDelete,
+}: {
+  videos: SavedVideo[] | null;
+  onOpen: () => void;
+  onWatch: (v: SavedVideo) => void;
+  onDownload: (v: SavedVideo) => void;
+  onDelete: (v: SavedVideo) => void;
+}) {
+  if (videos === null) {
+    return (
+      <button onClick={onOpen} className="rounded-2xl bg-white/10 py-3 font-bold hover:bg-white/20">
+        🎬 내 방송 영상 보관함 열기
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-2xl bg-white/5 p-4">
+      <div className="mb-3 font-bold">🎬 내 방송 영상 ({videos.length}개)</div>
+      {videos.length === 0 && <p className="text-sm text-white/50">아직 녹화한 방송이 없어요. 라이브를 시작하면 자동으로 녹화돼요.</p>}
+      <ul className="space-y-2">
+        {videos.map((v) => (
+          <li key={v.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-white/5 p-3">
+            <span className="text-3xl">{v.categoryEmoji}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-bold">{v.title}</div>
+              <div className="text-xs text-white/50">
+                {new Date(v.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} ·{" "}
+                {clock(v.durationMs)} · 👁 {formatCount(v.peakViewers)} · ❤️ {formatCount(v.likes)} · +{formatCount(v.newSubs)}구독
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => onWatch(v)} className="rounded-lg bg-red-600 px-3 py-1.5 font-bold">
+                ▶ 보기
+              </button>
+              <button onClick={() => onDownload(v)} className="rounded-lg bg-white/10 px-3 py-1.5" title="내려받기">
+                ⬇️
+              </button>
+              <button onClick={() => onDelete(v)} className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-red-500/40" title="삭제">
+                🗑️
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

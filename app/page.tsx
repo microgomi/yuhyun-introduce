@@ -1226,6 +1226,13 @@ export default function Home() {
                 bg: "from-pink-500 via-violet-600 to-indigo-700",
                 href: "/soundlab",
               },
+              {
+                emoji: "📺",
+                title: "나도 유튜버",
+                desc: "라이브 방송하고 영상 기록! 구독자 모아 실버 버튼까지",
+                bg: "from-red-600 via-rose-600 to-zinc-900",
+                href: "/livetube",
+              },
             ].map((item) => {
               const Card = (
                 <div
