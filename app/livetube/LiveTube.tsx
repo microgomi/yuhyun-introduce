@@ -10,7 +10,11 @@ import {
   type Category,
   type CategoryId,
   COMMON_CHATS,
+  type Food,
+  FOODS,
   formatCount,
+  HUNGRY_CHATS,
+  LEAVING_CHATS,
   LOUD_CHATS,
   NICKNAMES,
   nextAward,
@@ -48,6 +52,8 @@ interface Channel {
   subs: number;
   money: number;
   broadcasts: number;
+  /** 지금까지 방송을 보러 온 시청자 수의 합. 버튼은 이걸로 받는다. */
+  totalViewers: number;
 }
 
 interface LiveStats {
@@ -59,19 +65,43 @@ interface LiveStats {
   /** 0~1 지금 방송 분위기 */
   hype: number;
   elapsedMs: number;
+  /** 0~100 배부름. 0 이 되면 팬이 떠난다 */
+  fullness: number;
+  /** 이번 방송에 들어온 시청자 수의 합 */
+  cumViewers: number;
+  /** 이번 방송에서 음식에 쓴 돈 */
+  spent: number;
 }
 
-const EMPTY_STATS: LiveStats = { viewers: 0, peakViewers: 0, likes: 0, newSubs: 0, money: 0, hype: 0, elapsedMs: 0 };
+const EMPTY_STATS: LiveStats = {
+  viewers: 0,
+  peakViewers: 0,
+  likes: 0,
+  newSubs: 0,
+  money: 0,
+  hype: 0,
+  elapsedMs: 0,
+  fullness: 100,
+  cumViewers: 0,
+  spent: 0,
+};
+
+/** 1초에 줄어드는 배부름. 가득 찬 상태에서 약 5분이면 바닥난다. */
+const HUNGER_PER_SECOND = 0.35;
+/** 배부름이 이보다 낮으면 시청자가 줄기 시작한다 */
+const HUNGRY_LINE = 30;
+/** 1초마다 시청자 중 이만큼이 새로 들어온 사람으로 바뀐다(누적 시청자 계산용) */
+const VIEWER_TURNOVER = 0.1;
 
 function loadChannel(): Channel {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { subs: 0, money: 0, broadcasts: 0 };
+    if (!raw) return { subs: 0, money: 0, broadcasts: 0, totalViewers: 0 };
     const d = JSON.parse(raw) as Partial<Channel>;
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
-    return { subs: num(d.subs), money: num(d.money), broadcasts: num(d.broadcasts) };
+    return { subs: num(d.subs), money: num(d.money), broadcasts: num(d.broadcasts), totalViewers: num(d.totalViewers) };
   } catch {
-    return { subs: 0, money: 0, broadcasts: 0 };
+    return { subs: 0, money: 0, broadcasts: 0, totalViewers: 0 };
   }
 }
 
@@ -139,6 +169,11 @@ export default function LiveTube() {
   const subtitleRef = useRef({ text: "", at: 0 });
   /** 방송이 끝난 뒤 늦게 도착한 반응 채팅을 버리기 위해 */
   const liveRef = useRef(false);
+  /** 지금 먹고 있는 음식 */
+  const eatingRef = useRef<{ food: Food; start: number } | null>(null);
+  const [eatingId, setEatingId] = useState<string | null>(null);
+  /** 목소리로 "라면 먹을게요" 하면 먹도록, 아래에서 만든 eat 을 가리킨다 */
+  const eatRef = useRef<(food: Food) => void>(() => {});
   const speech = useSpeech();
   const { start: startSpeech, stop: stopSpeech } = speech;
 
@@ -312,6 +347,40 @@ export default function LiveTube() {
       g.fillStyle = s.hype > 0.6 ? "#f97316" : s.hype > 0.3 ? "#facc15" : "#60a5fa";
       g.fillRect(20, 60, 200 * s.hype, 8);
 
+      // 배부름 게이지(배고프면 빨갛게 깜빡인다)
+      const hungry = s.fullness < HUNGRY_LINE;
+      g.fillStyle = "rgba(0,0,0,0.55)";
+      g.beginPath();
+      g.roundRect(20, 76, 200, 26, 6);
+      g.fill();
+      g.fillStyle = hungry ? (Math.floor(now / 400) % 2 ? "#ef4444" : "#7f1d1d") : "#22c55e";
+      g.fillRect(58, 84, 154 * (s.fullness / 100), 10);
+      g.font = "16px sans-serif";
+      g.fillStyle = "#fff";
+      g.fillText("🍚", 28, 89);
+      if (hungry) {
+        g.font = "bold 18px sans-serif";
+        g.fillStyle = "#fca5a5";
+        g.fillText(s.fullness <= 0 ? "배고파서 팬이 떠나요!" : "배고파요… 뭐 좀 먹어요!", 22, 120);
+      }
+
+      // 먹는 중: 음식이 한 입씩 줄어든다
+      const eating = eatingRef.current;
+      if (eating) {
+        const t = Math.min(1, (now - eating.start) / eating.food.eatMs);
+        const bite = Math.floor(t * 5);
+        const size = 150 * (1 - bite * 0.15);
+        const cx = WIDTH * 0.36;
+        const cy = HEIGHT * 0.62;
+        g.textAlign = "center";
+        g.font = `${size}px sans-serif`;
+        g.fillText(eating.food.emoji, cx + Math.sin(now / 90) * 6, cy + (Math.floor(now / 250) % 2 ? -8 : 0));
+        g.font = "bold 34px sans-serif";
+        g.fillStyle = "#fde68a";
+        g.fillText(Math.floor(now / 300) % 2 ? "냠냠 😋" : "쩝쩝 🤤", cx, cy - size / 2 - 24);
+        g.textAlign = "left";
+      }
+
       // 채팅창(오른쪽)
       const boxX = WIDTH - 330;
       const lines = chatsRef.current.slice(-CHAT_LINES);
@@ -401,10 +470,18 @@ export default function LiveTube() {
       const hype = s.hype * 0.75 + energy * 0.25;
       const elapsedMs = performance.now() - startAtRef.current;
 
-      // 원래 구독자가 많을수록, 분위기가 좋을수록 시청자가 몰린다.
-      const fame = 5 + Math.sqrt(channelRef.current.subs + s.newSubs) * 3;
-      const target = fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5));
+      // 배가 고프면 힘없는 방송이 되어 팬이 떠난다.
+      const fullness = Math.max(0, s.fullness - HUNGER_PER_SECOND);
+      const hungerFactor = fullness >= HUNGRY_LINE ? 1 : fullness > 0 ? 0.4 + fullness / 50 : 0.15;
+
+      // 구독자가 많을수록, 지금까지 본 사람이 많을수록(유명할수록), 분위기가 좋을수록 시청자가 몰린다.
+      const fame =
+        5 +
+        Math.sqrt(channelRef.current.subs + s.newSubs) * 3 +
+        Math.pow(channelRef.current.totalViewers + s.cumViewers, 0.7) * 0.15;
+      const target = fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5)) * hungerFactor;
       const viewers = Math.max(1, Math.round(s.viewers + (target - s.viewers) * 0.25 + (Math.random() - 0.5) * Math.max(2, target * 0.05)));
+      const cumViewers = s.cumViewers + Math.max(0, viewers - s.viewers) + Math.round(viewers * VIEWER_TURNOVER);
       const likes = s.likes + Math.round(viewers * hype * 0.04 * Math.random());
       const newSubs = s.newSubs + (Math.random() < hype ? Math.round(viewers * hype * 0.012 * Math.random()) + (hype > 0.3 ? 1 : 0) : 0);
       let money = s.money;
@@ -418,6 +495,11 @@ export default function LiveTube() {
       }
       if (loud) addChat(pick(LOUD_CHATS));
       if (hype < 0.08 && Math.random() < 0.4) addChat(pick(BORED_CHATS));
+      if (fullness <= 0 && Math.random() < 0.5) addChat(pick(LEAVING_CHATS));
+      else if (fullness < HUNGRY_LINE && Math.random() < 0.3) addChat(pick(HUNGRY_CHATS));
+      // 먹는 중이면 먹방 채팅
+      const eating = eatingRef.current;
+      if (eating && Math.random() < 0.8) addChat(pick(eating.food.chats));
       // 슈퍼챗(후원)
       if (Math.random() < hype * 0.08 * Math.min(1, viewers / 30)) {
         const amount = pick([1000, 1000, 2000, 5000, 10000]);
@@ -436,6 +518,9 @@ export default function LiveTube() {
         money,
         hype,
         elapsedMs,
+        fullness,
+        cumViewers,
+        spent: s.spent,
       };
       setStats(statsRef.current);
       if (elapsedMs >= MAX_LIVE_MS) endLiveRef.current();
@@ -447,6 +532,9 @@ export default function LiveTube() {
   const onSpoken = useCallback(
     (text: string) => {
       subtitleRef.current = { text, at: performance.now() };
+      // "치킨 먹을래요" 처럼 음식 이름과 "먹"이 같이 들리면 그 음식을 먹는다
+      const said = FOODS.find((f) => text.includes(f.name));
+      if (said && text.includes("먹")) eatRef.current(said);
       const reaction = reactTo(text);
       burstRef.current = Math.min(1, burstRef.current + reaction.hype);
       // 사람이 읽고 치는 시간만큼 조금씩 늦게 올라온다
@@ -514,11 +602,14 @@ export default function LiveTube() {
     const recorder = recorderRef.current;
     recorderRef.current = null;
     liveRef.current = false;
+    eatingRef.current = null;
+    setEatingId(null);
     stopSpeech();
     const newChannel: Channel = {
       subs: channelRef.current.subs + s.newSubs,
-      money: channelRef.current.money + s.money,
+      money: Math.max(0, channelRef.current.money + s.money - s.spent),
       broadcasts: channelRef.current.broadcasts + 1,
+      totalViewers: channelRef.current.totalViewers + s.cumViewers,
     };
     setChannel(newChannel);
     saveChannel(newChannel);
@@ -574,6 +665,33 @@ export default function LiveTube() {
     addChat("안녕하세요 여러분~!! 👋", 0, "⭐ 나");
     for (let i = 0; i < 3; i++) setTimeout(() => addChat(pick(["안녕하세요!!", "ㅎㅇㅎㅇ", "반가워요~", "하이하이"])), 300 + i * 400);
   }, [addChat]);
+
+  /** 음식을 사서 먹는다. 후원금 + 모아 둔 돈으로 산다. */
+  const eat = useCallback(
+    (food: Food) => {
+      const s = statsRef.current;
+      const wallet = channelRef.current.money + s.money - s.spent;
+      if (eatingRef.current || wallet < food.price) return;
+      eatingRef.current = { food, start: performance.now() };
+      setEatingId(food.id);
+      statsRef.current = { ...s, spent: s.spent + food.price, fullness: Math.min(100, s.fullness + food.fill) };
+      setStats(statsRef.current);
+      burstRef.current = Math.min(1, burstRef.current + food.hype);
+      addChat(`${food.emoji} ${food.name} 먹을게요! 잘 먹겠습니다~`, 0, "⭐ 나");
+      for (let i = 0; i < 3; i++) setTimeout(() => liveRef.current && addHeart(food.emoji), 300 + i * 250);
+      setTimeout(() => {
+        if (eatingRef.current?.food.id !== food.id) return;
+        eatingRef.current = null;
+        setEatingId(null);
+        if (liveRef.current) addChat(pick(["다 먹었다!!", "완뚝 ㄷㄷ", "잘 먹네요 ㅋㅋ", "맛있었어요?"]));
+      }, food.eatMs);
+    },
+    [addChat, addHeart],
+  );
+
+  useEffect(() => {
+    eatRef.current = eat;
+  }, [eat]);
 
   const askSubscribe = useCallback(() => {
     burstRef.current = Math.min(1, burstRef.current + 0.3);
@@ -635,8 +753,9 @@ export default function LiveTube() {
     [closeWatch, watching],
   );
 
-  const award = awardFor(channel.subs);
-  const next = nextAward(channel.subs);
+  const award = awardFor(channel.totalViewers);
+  const next = nextAward(channel.totalViewers);
+  const wallet = channel.money + stats.money - stats.spent;
 
   return (
     <div className="min-h-screen w-full bg-zinc-950 text-white">
@@ -657,7 +776,8 @@ export default function LiveTube() {
             {award ? `${award.emoji} ` : ""}구독자 {formatCount(channel.subs + (phase === "live" ? stats.newSubs : 0))}명
           </div>
           <div className="text-xs text-white/50">
-            💰 {channel.money.toLocaleString()}원 · 방송 {channel.broadcasts}회
+            👁 누적 {formatCount(channel.totalViewers + (phase === "live" ? stats.cumViewers : 0))}명 · 💰{" "}
+            {(phase === "live" ? wallet : channel.money).toLocaleString()}원 · 방송 {channel.broadcasts}회
           </div>
         </div>
       </div>
@@ -718,14 +838,28 @@ export default function LiveTube() {
           </p>
 
           <div className="rounded-2xl bg-white/5 p-4">
-            <div className="mb-2 text-sm text-white/60">구독자 보상 {next ? `· 다음: ${next.emoji} ${next.label}까지 ${formatCount(next.subs - channel.subs)}명` : "· 전부 모았어요!"}</div>
-            <div className="flex flex-wrap gap-2">
-              {AWARDS.map((a) => (
-                <span key={a.subs} className={`rounded-full px-3 py-1 text-sm ${channel.subs >= a.subs ? "bg-amber-400 font-bold text-zinc-900" : "bg-white/10 text-white/40"}`}>
-                  {a.emoji} {a.label} ({formatCount(a.subs)})
-                </span>
-              ))}
+            <div className="mb-2 text-sm text-white/60">
+              🏆 유튜버 버튼 (누적 시청자 {formatCount(channel.totalViewers)}명)
+              {next ? ` · 다음 ${next.emoji} ${next.label}까지 ${formatCount(next.viewers - channel.totalViewers)}명` : " · 전부 모았어요!"}
             </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {AWARDS.map((a) => {
+                const got = channel.totalViewers >= a.viewers;
+                return (
+                  <div
+                    key={a.viewers}
+                    className={`rounded-xl p-3 text-center ${got ? "bg-gradient-to-b from-amber-300 to-amber-500 text-zinc-900" : "bg-white/5 text-white/40"}`}
+                  >
+                    <div className={`text-4xl ${got ? "" : "opacity-40 grayscale"}`}>{a.emoji}</div>
+                    <div className="font-bold">{a.label}</div>
+                    <div className="text-xs">시청자 {formatCount(a.viewers)}명</div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-white/40">
+              방송 중에 배가 고프면 팬이 떠나요. 음식을 눌러 먹거나 &quot;라면 먹을게요&quot;처럼 말해서 먹으며 방송하세요!
+            </p>
           </div>
 
           <VideoLibrary
@@ -768,6 +902,33 @@ export default function LiveTube() {
               ⏹ 방송 종료
             </button>
           </div>
+          <div className="rounded-xl bg-white/5 p-3">
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className={stats.fullness < HUNGRY_LINE ? "font-bold text-red-300" : "text-white/70"}>
+                🍚 배부름 {Math.round(stats.fullness)}% {stats.fullness < HUNGRY_LINE && "— 배고파요! 안 먹으면 팬이 떠나요"}
+              </span>
+              <span className="text-amber-300">💰 {wallet.toLocaleString()}원</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {FOODS.map((f) => {
+                const canBuy = wallet >= f.price && eatingId === null;
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => eat(f)}
+                    disabled={!canBuy}
+                    className={`rounded-xl p-2 text-center transition-transform disabled:opacity-35 ${
+                      eatingId === f.id ? "bg-amber-500" : "bg-white/10 hover:scale-105 hover:bg-white/20"
+                    }`}
+                  >
+                    <div className="text-3xl">{f.emoji}</div>
+                    <div className="text-sm font-bold">{f.name}</div>
+                    <div className="text-xs text-white/60">{f.price === 0 ? "공짜" : `${f.price.toLocaleString()}원`}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-5">
             <Stat label="👁 시청자" value={formatCount(stats.viewers)} />
             <Stat label="📈 최고 시청자" value={formatCount(stats.peakViewers)} />
@@ -808,8 +969,11 @@ export default function LiveTube() {
             <Stat label="➕ 새 구독자" value={`${formatCount(stats.newSubs)}명`} />
             <Stat label="💰 후원" value={`${stats.money.toLocaleString()}원`} />
             <Stat label="👥 총 구독자" value={`${formatCount(channel.subs)}명`} />
+            <Stat label="👁 이번 방송 시청자" value={`${formatCount(stats.cumViewers)}명`} />
+            <Stat label="🌍 누적 시청자" value={`${formatCount(channel.totalViewers)}명`} />
+            <Stat label="🍽️ 음식값" value={`${stats.spent.toLocaleString()}원`} />
           </div>
-          {award && channel.subs - stats.newSubs < award.subs && (
+          {award && channel.totalViewers - stats.cumViewers < award.viewers && (
             <div className="rounded-2xl bg-amber-400 px-6 py-4 text-xl font-black text-zinc-900">
               🎉 {award.emoji} {award.label} 받았어요!
             </div>

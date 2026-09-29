@@ -70,35 +70,66 @@ export const NICKNAMES = [
 ];
 
 export interface Award {
-  subs: number;
+  /** 받는 데 필요한 누적 시청자 수 */
+  viewers: number;
   emoji: string;
   label: string;
 }
 
-/** 진짜 유튜브 보상 단계를 게임에 맞게 줄인 것 */
+/** 누적 시청자(지금까지 방송을 보러 온 사람 수의 합)로 받는 버튼 */
 export const AWARDS: Award[] = [
-  { subs: 100, emoji: "🌱", label: "새싹 유튜버" },
-  { subs: 1000, emoji: "🥉", label: "브론즈 버튼" },
-  { subs: 10000, emoji: "🥈", label: "실버 버튼" },
-  { subs: 100000, emoji: "🥇", label: "골드 버튼" },
-  { subs: 1000000, emoji: "💎", label: "다이아 버튼" },
+  { viewers: 100_000, emoji: "🥈", label: "실버 버튼" },
+  { viewers: 1_000_000, emoji: "🥇", label: "골드 버튼" },
+  { viewers: 10_000_000, emoji: "💎", label: "다이아 버튼" },
+  { viewers: 100_000_000, emoji: "🔷", label: "사파이어 버튼" },
 ];
 
-export function awardFor(subs: number): Award | null {
+export function awardFor(totalViewers: number): Award | null {
   let best: Award | null = null;
-  for (const a of AWARDS) if (subs >= a.subs) best = a;
+  for (const a of AWARDS) if (totalViewers >= a.viewers) best = a;
   return best;
 }
 
-export function nextAward(subs: number): Award | null {
-  return AWARDS.find((a) => subs < a.subs) ?? null;
+export function nextAward(totalViewers: number): Award | null {
+  return AWARDS.find((a) => totalViewers < a.viewers) ?? null;
 }
+
+export interface Food {
+  id: string;
+  emoji: string;
+  name: string;
+  /** 원. 0 이면 공짜 */
+  price: number;
+  /** 배부름이 이만큼 찬다(0~100) */
+  fill: number;
+  /** 먹는 동안 방송 분위기를 이만큼 띄운다 */
+  hype: number;
+  /** 먹는 시간(ms) */
+  eatMs: number;
+  chats: string[];
+}
+
+/** 방송 중에 사 먹는 음식. 비쌀수록 시청자가 더 좋아한다. */
+export const FOODS: Food[] = [
+  { id: "ramen", emoji: "🍜", name: "라면", price: 0, fill: 25, hype: 0.35, eatMs: 3500, chats: ["후루룩 소리 좋아요", "라면 먹고 싶다 ㅠㅠ", "계란 넣었어요?", "국물까지 드세요!"] },
+  { id: "gimbap", emoji: "🍙", name: "김밥", price: 1000, fill: 20, hype: 0.35, eatMs: 2500, chats: ["김밥 맛있겠다", "한 줄 더!", "참치김밥이에요?"] },
+  { id: "tteok", emoji: "🍢", name: "떡볶이", price: 3000, fill: 30, hype: 0.5, eatMs: 3500, chats: ["매워 보여요 ㅋㅋ", "떡볶이 최고!!", "어묵도 드세요", "맵찔이 인증?"] },
+  { id: "burger", emoji: "🍔", name: "햄버거", price: 5000, fill: 40, hype: 0.6, eatMs: 3500, chats: ["한 입 크다 ㅋㅋ", "감자튀김은요?", "버거 먹방 최고"] },
+  { id: "chicken", emoji: "🍗", name: "치킨", price: 10000, fill: 55, hype: 0.8, eatMs: 4500, chats: ["치킨은 사랑입니다", "양념이에요 후라이드예요?", "닭다리 누구 줘요?", "와 바삭바삭 ㅠㅠ"] },
+  { id: "pizza", emoji: "🍕", name: "피자", price: 15000, fill: 70, hype: 1, eatMs: 4500, chats: ["치즈 늘어나는 거 봐!!", "피자 파티다", "한 조각만 ㅠㅠ", "대왕 먹방이다"] },
+];
+
+/** 배가 고플 때 시청자 채팅 */
+export const HUNGRY_CHATS = ["배고파 보여요 ㅠㅠ", "밥 좀 드세요!", "힘 없어 보여요", "먹방 해주세요~", "라면이라도 드세요"];
+/** 배부름이 0 이 되어 팬이 나갈 때 */
+export const LEAVING_CHATS = ["밥 먹고 오세요... 나갈게요", "힘이 없어 보여서 나갈게요 ㅠ", "다음에 올게요", "배고픈 방송은 좀..."];
 
 export function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)];
 }
 
 export function formatCount(n: number): string {
+  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(n >= 1_000_000_000 ? 0 : 1)}억`;
   if (n >= 10000) return `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}만`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}천`;
   return String(Math.floor(n));
