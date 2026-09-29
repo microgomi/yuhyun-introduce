@@ -16,7 +16,9 @@ import {
   nextAward,
   pick,
 } from "./liveData";
+import { useSpeech } from "./useSpeech";
 import { deleteVideo, listVideos, type SavedVideo, saveVideo } from "./videoStore";
+import { reactTo } from "./voiceReact";
 
 type Phase = "setup" | "live" | "result";
 
@@ -133,6 +135,12 @@ export default function LiveTube() {
   const titleRef = useRef(title);
   const categoryRef = useRef<Category>(category);
   const channelRef = useRef(channel);
+  /** 방송 화면에 띄울 자막(내가 한 말). at 은 마지막으로 바뀐 시각 */
+  const subtitleRef = useRef({ text: "", at: 0 });
+  /** 방송이 끝난 뒤 늦게 도착한 반응 채팅을 버리기 위해 */
+  const liveRef = useRef(false);
+  const speech = useSpeech();
+  const { start: startSpeech, stop: stopSpeech } = speech;
 
   useEffect(() => {
     titleRef.current = title;
@@ -341,6 +349,21 @@ export default function LiveTube() {
       }
       g.globalAlpha = 1;
 
+      // 자막: 내가 한 말(인식 중인 말도 바로 보여 준다)
+      const sub = subtitleRef.current;
+      if (sub.text && now - sub.at < 3500) {
+        g.font = "bold 26px sans-serif";
+        g.textAlign = "center";
+        const text = sub.text.length > 34 ? `…${sub.text.slice(-34)}` : sub.text;
+        const w = g.measureText(text).width + 36;
+        g.fillStyle = "rgba(0,0,0,0.7)";
+        g.beginPath();
+        g.roundRect(WIDTH * 0.36 - w / 2, HEIGHT - 104, w, 46, 10);
+        g.fill();
+        g.fillStyle = "#fde047";
+        g.fillText(text, WIDTH * 0.36, HEIGHT - 80);
+      }
+
       // 제목(아래)
       g.textAlign = "left";
       g.fillStyle = "rgba(0,0,0,0.55)";
@@ -420,6 +443,31 @@ export default function LiveTube() {
     return () => clearInterval(id);
   }, [addChat, addHeart, camStatus, phase]);
 
+  // ── 내 목소리를 알아듣고 시청자가 반응 ──
+  const onSpoken = useCallback(
+    (text: string) => {
+      subtitleRef.current = { text, at: performance.now() };
+      const reaction = reactTo(text);
+      burstRef.current = Math.min(1, burstRef.current + reaction.hype);
+      // 사람이 읽고 치는 시간만큼 조금씩 늦게 올라온다
+      reaction.replies.forEach((reply, i) =>
+        setTimeout(() => {
+          if (liveRef.current) addChat(reply);
+        }, 600 + i * 700 + Math.random() * 500),
+      );
+      if (reaction.subs) {
+        const s = statsRef.current;
+        const gained = Math.max(1, Math.round(s.viewers * (0.03 + s.hype * 0.05)));
+        statsRef.current = { ...s, newSubs: s.newSubs + gained };
+        setStats(statsRef.current);
+      }
+      if (reaction.likes) for (let i = 0; i < 6; i++) setTimeout(() => liveRef.current && addHeart("👍"), i * 120);
+      // 한 문장 말할 때마다 몇 명은 채팅 대신 하트를 누른다
+      addHeart();
+    },
+    [addChat, addHeart],
+  );
+
   // ── 방송 시작 / 종료 ──
   const startLive = useCallback(async () => {
     await openMedia();
@@ -432,9 +480,17 @@ export default function LiveTube() {
     setLastVideo(null);
     setSaveState("idle");
     startAtRef.current = performance.now();
+    subtitleRef.current = { text: "", at: 0 };
+    liveRef.current = true;
     setPhase("live");
+    startSpeech({
+      onInterim: (text) => {
+        if (text) subtitleRef.current = { text, at: performance.now() };
+      },
+      onFinal: onSpoken,
+    });
     addChat("방송 시작했다!! 🎉", 0, "📢 알림");
-  }, [addChat, openMedia]);
+  }, [addChat, onSpoken, openMedia, startSpeech]);
 
   // 캔버스가 화면에 붙은 뒤 녹화를 시작한다(캔버스 화면 + 마이크 소리).
   useEffect(() => {
@@ -457,6 +513,8 @@ export default function LiveTube() {
     const s = statsRef.current;
     const recorder = recorderRef.current;
     recorderRef.current = null;
+    liveRef.current = false;
+    stopSpeech();
     const newChannel: Channel = {
       subs: channelRef.current.subs + s.newSubs,
       money: channelRef.current.money + s.money,
@@ -504,7 +562,7 @@ export default function LiveTube() {
     }
     recorder.onstop = () => finish(new Blob(recChunksRef.current, { type: recorder.mimeType || "video/webm" }));
     recorder.stop();
-  }, [closeMedia]);
+  }, [closeMedia, stopSpeech]);
 
   useEffect(() => {
     endLiveRef.current = endLive;
@@ -656,6 +714,7 @@ export default function LiveTube() {
           )}
           <p className="text-center text-xs text-white/40">
             방송은 진짜 인터넷에 나가지 않아요. 시청자와 채팅은 게임 속 가상 시청자이고, 녹화 영상은 이 기기에만 저장돼요.
+            단, 목소리 인식은 브라우저(크롬은 구글)가 내 말을 글자로 바꾸는 데 쓰여요.
           </p>
 
           <div className="rounded-2xl bg-white/5 p-4">
@@ -716,6 +775,14 @@ export default function LiveTube() {
             <Stat label="➕ 새 구독자" value={formatCount(stats.newSubs)} />
             <Stat label="💰 후원" value={`${stats.money.toLocaleString()}원`} />
           </div>
+          <p
+            className={`text-center text-sm ${speech.status === "on" ? "text-emerald-300" : "text-amber-300"}`}
+          >
+            {speech.status === "on" && "🗣️ 목소리 인식 중 — 말하면 자막이 뜨고 시청자가 대답해요 (인사·질문·구독·좋아요·게임·음식…)"}
+            {speech.status === "unsupported" && "이 브라우저는 목소리 인식이 안 돼요. 크롬에서 하면 시청자가 내 말에 대답해요."}
+            {speech.status === "denied" && "마이크 허락이 없어서 목소리 인식을 못 해요."}
+            {speech.status === "off" && "목소리 인식 준비 중…"}
+          </p>
           <p className="text-center text-xs text-white/40">
             {camStatus === "on" ? "말하고 움직이면 분위기가 올라가요" : "말을 하면 캐릭터가 들썩이고 분위기가 올라가요"} · 화면을 누르면 하트 · 녹화 중 🔴 (최대 10분)
           </p>
