@@ -14,11 +14,13 @@ import {
   FOODS,
   formatCount,
   HUNGRY_CHATS,
+  type ItemId,
   LEAVING_CHATS,
   LOUD_CHATS,
   NICKNAMES,
   nextAward,
   pick,
+  SHOP_ITEMS,
 } from "./liveData";
 import { useSpeech } from "./useSpeech";
 import { deleteVideo, listVideos, type SavedVideo, saveVideo } from "./videoStore";
@@ -54,6 +56,17 @@ interface Channel {
   broadcasts: number;
   /** 지금까지 방송을 보러 온 시청자 수의 합. 버튼은 이걸로 받는다. */
   totalViewers: number;
+  /** 후원금으로 산 방송 장비 */
+  items: ItemId[];
+}
+
+function has(channel: Channel, id: ItemId) {
+  return channel.items.includes(id);
+}
+
+/** 음식값(미니 냉장고가 있으면 반값) */
+function foodPrice(channel: Channel, food: Food) {
+  return has(channel, "fridge") ? Math.floor(food.price / 2) : food.price;
 }
 
 interface LiveStats {
@@ -96,12 +109,14 @@ const VIEWER_TURNOVER = 0.1;
 function loadChannel(): Channel {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { subs: 0, money: 0, broadcasts: 0, totalViewers: 0 };
+    if (!raw) return { subs: 0, money: 0, broadcasts: 0, totalViewers: 0, items: [] };
     const d = JSON.parse(raw) as Partial<Channel>;
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
-    return { subs: num(d.subs), money: num(d.money), broadcasts: num(d.broadcasts), totalViewers: num(d.totalViewers) };
+    const known = new Set<string>(SHOP_ITEMS.map((i) => i.id));
+    const items = Array.isArray(d.items) ? d.items.filter((i): i is ItemId => typeof i === "string" && known.has(i)) : [];
+    return { subs: num(d.subs), money: num(d.money), broadcasts: num(d.broadcasts), totalViewers: num(d.totalViewers), items };
   } catch {
-    return { subs: 0, money: 0, broadcasts: 0, totalViewers: 0 };
+    return { subs: 0, money: 0, broadcasts: 0, totalViewers: 0, items: [] };
   }
 }
 
@@ -458,20 +473,23 @@ export default function LiveTube() {
     const id = setInterval(() => {
       const cat = categoryRef.current;
       const acc = voiceSumRef.current;
-      const voice = acc.n > 0 ? Math.min(1, (acc.sum / acc.n) * 12) : 0;
+      const ch = channelRef.current;
+      const voice = acc.n > 0 ? Math.min(1, (acc.sum / acc.n) * 12 * (has(ch, "mic") ? 1.5 : 1)) : 0;
       const loud = acc.loud > 3;
       voiceSumRef.current = { sum: 0, n: 0, loud: 0 };
-      const motion = camStatus === "on" ? motionRef.current : Math.min(1, voice * 0.6);
+      const motion = camStatus === "on" ? Math.min(1, motionRef.current * (has(ch, "camera") ? 1.5 : 1)) : Math.min(1, voice * 0.6);
       const burst = burstRef.current;
       burstRef.current *= 0.6;
 
       const energy = Math.min(1, cat.talk * voice + cat.move * motion + burst);
       const s = statsRef.current;
-      const hype = s.hype * 0.75 + energy * 0.25;
+      // 방을 꾸미면 분위기가 천천히 식는다
+      const keep = has(ch, "deco") ? 0.88 : 0.75;
+      const hype = s.hype * keep + energy * (1 - keep);
       const elapsedMs = performance.now() - startAtRef.current;
 
       // 배가 고프면 힘없는 방송이 되어 팬이 떠난다.
-      const fullness = Math.max(0, s.fullness - HUNGER_PER_SECOND);
+      const fullness = Math.max(0, s.fullness - HUNGER_PER_SECOND * (has(ch, "chair") ? 0.6 : 1));
       const hungerFactor = fullness >= HUNGRY_LINE ? 1 : fullness > 0 ? 0.4 + fullness / 50 : 0.15;
 
       // 구독자가 많을수록, 지금까지 본 사람이 많을수록(유명할수록), 분위기가 좋을수록 시청자가 몰린다.
@@ -479,7 +497,7 @@ export default function LiveTube() {
         5 +
         Math.sqrt(channelRef.current.subs + s.newSubs) * 3 +
         Math.pow(channelRef.current.totalViewers + s.cumViewers, 0.7) * 0.15;
-      const target = fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5)) * hungerFactor;
+      const target = fame * (0.3 + hype * 2.2) * (1 + Math.min(elapsedMs / 120000, 1.5)) * hungerFactor * (has(ch, "light") ? 1.25 : 1);
       const viewers = Math.max(1, Math.round(s.viewers + (target - s.viewers) * 0.25 + (Math.random() - 0.5) * Math.max(2, target * 0.05)));
       const cumViewers = s.cumViewers + Math.max(0, viewers - s.viewers) + Math.round(viewers * VIEWER_TURNOVER);
       const likes = s.likes + Math.round(viewers * hype * 0.04 * Math.random());
@@ -501,7 +519,8 @@ export default function LiveTube() {
       const eating = eatingRef.current;
       if (eating && Math.random() < 0.8) addChat(pick(eating.food.chats));
       // 슈퍼챗(후원)
-      if (Math.random() < hype * 0.08 * Math.min(1, viewers / 30)) {
+      if (has(ch, "mic") && voice > 0.3 && Math.random() < 0.08) addChat(pick(["마이크 바꿨어요? 목소리 완전 좋아요", "음질 대박", "목소리 꿀보이스"]));
+      if (Math.random() < hype * 0.08 * Math.min(1, viewers / 30) * (has(ch, "pc") ? 2 : 1)) {
         const amount = pick([1000, 1000, 2000, 5000, 10000]);
         money += amount;
         addChat(pick(["최고예요!", "응원해요!!", "과자 사드세요", "계속 방송해주세요"]), amount);
@@ -538,6 +557,8 @@ export default function LiveTube() {
       const reaction = reactTo(text);
       burstRef.current = Math.min(1, burstRef.current + reaction.hype);
       // 사람이 읽고 치는 시간만큼 조금씩 늦게 올라온다
+      // 헤드셋이 있으면 시청자가 한 명 더 대답한다
+      if (has(channelRef.current, "headset")) reaction.replies.push(pick(["ㅇㅇ 맞아요!", "와 대답해줬다!!", "저도요!", "ㅋㅋㅋ 공감"]));
       reaction.replies.forEach((reply, i) =>
         setTimeout(() => {
           if (liveRef.current) addChat(reply);
@@ -610,6 +631,7 @@ export default function LiveTube() {
       money: Math.max(0, channelRef.current.money + s.money - s.spent),
       broadcasts: channelRef.current.broadcasts + 1,
       totalViewers: channelRef.current.totalViewers + s.cumViewers,
+      items: channelRef.current.items,
     };
     setChannel(newChannel);
     saveChannel(newChannel);
@@ -671,10 +693,11 @@ export default function LiveTube() {
     (food: Food) => {
       const s = statsRef.current;
       const wallet = channelRef.current.money + s.money - s.spent;
-      if (eatingRef.current || wallet < food.price) return;
+      const price = foodPrice(channelRef.current, food);
+      if (eatingRef.current || wallet < price) return;
       eatingRef.current = { food, start: performance.now() };
       setEatingId(food.id);
-      statsRef.current = { ...s, spent: s.spent + food.price, fullness: Math.min(100, s.fullness + food.fill) };
+      statsRef.current = { ...s, spent: s.spent + price, fullness: Math.min(100, s.fullness + food.fill) };
       setStats(statsRef.current);
       burstRef.current = Math.min(1, burstRef.current + food.hype);
       addChat(`${food.emoji} ${food.name} 먹을게요! 잘 먹겠습니다~`, 0, "⭐ 나");
@@ -752,6 +775,16 @@ export default function LiveTube() {
     },
     [closeWatch, watching],
   );
+
+  const buyItem = useCallback((id: ItemId) => {
+    const item = SHOP_ITEMS.find((i) => i.id === id);
+    const current = channelRef.current;
+    if (!item || has(current, id) || current.money < item.price) return;
+    const next: Channel = { ...current, money: current.money - item.price, items: [...current.items, id] };
+    channelRef.current = next;
+    setChannel(next);
+    saveChannel(next);
+  }, []);
 
   const award = awardFor(channel.totalViewers);
   const next = nextAward(channel.totalViewers);
@@ -862,6 +895,40 @@ export default function LiveTube() {
             </p>
           </div>
 
+          <div className="rounded-2xl bg-white/5 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-bold">🛒 방송 장비 가게</span>
+              <span className="text-sm text-amber-300">💰 {channel.money.toLocaleString()}원</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {SHOP_ITEMS.map((item) => {
+                const owned = has(channel, item.id);
+                const canBuy = !owned && channel.money >= item.price;
+                return (
+                  <div key={item.id} className={`flex items-center gap-3 rounded-xl p-3 ${owned ? "bg-emerald-500/15" : "bg-white/5"}`}>
+                    <span className="text-3xl">{item.emoji}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold">{item.name}</div>
+                      <div className="text-xs text-white/60">{item.effect}</div>
+                    </div>
+                    {owned ? (
+                      <span className="text-sm font-bold text-emerald-300">✅ 보유</span>
+                    ) : (
+                      <button
+                        onClick={() => buyItem(item.id)}
+                        disabled={!canBuy}
+                        className="rounded-lg bg-amber-400 px-3 py-1.5 text-sm font-bold text-zinc-900 disabled:bg-white/10 disabled:text-white/40"
+                      >
+                        {item.price.toLocaleString()}원
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-white/40">후원금은 방송이 끝나면 모여요. 방송 중엔 음식을, 방송 전엔 장비를 사세요!</p>
+          </div>
+
           <VideoLibrary
             videos={videos}
             onOpen={() => void openLibrary()}
@@ -907,11 +974,21 @@ export default function LiveTube() {
               <span className={stats.fullness < HUNGRY_LINE ? "font-bold text-red-300" : "text-white/70"}>
                 🍚 배부름 {Math.round(stats.fullness)}% {stats.fullness < HUNGRY_LINE && "— 배고파요! 안 먹으면 팬이 떠나요"}
               </span>
-              <span className="text-amber-300">💰 {wallet.toLocaleString()}원</span>
+              <span className="text-amber-300">
+                {channel.items.length > 0 && (
+                  <span className="mr-2" title="사용 중인 방송 장비">
+                    {SHOP_ITEMS.filter((i) => has(channel, i.id))
+                      .map((i) => i.emoji)
+                      .join("")}
+                  </span>
+                )}
+                💰 {wallet.toLocaleString()}원
+              </span>
             </div>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
               {FOODS.map((f) => {
-                const canBuy = wallet >= f.price && eatingId === null;
+                const price = foodPrice(channel, f);
+                const canBuy = wallet >= price && eatingId === null;
                 return (
                   <button
                     key={f.id}
@@ -923,7 +1000,7 @@ export default function LiveTube() {
                   >
                     <div className="text-3xl">{f.emoji}</div>
                     <div className="text-sm font-bold">{f.name}</div>
-                    <div className="text-xs text-white/60">{f.price === 0 ? "공짜" : `${f.price.toLocaleString()}원`}</div>
+                    <div className="text-xs text-white/60">{price === 0 ? "공짜" : `${price.toLocaleString()}원`}</div>
                   </button>
                 );
               })}

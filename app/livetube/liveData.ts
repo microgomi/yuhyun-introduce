@@ -119,6 +119,29 @@ export const FOODS: Food[] = [
   { id: "pizza", emoji: "🍕", name: "피자", price: 15000, fill: 70, hype: 1, eatMs: 4500, chats: ["치즈 늘어나는 거 봐!!", "피자 파티다", "한 조각만 ㅠㅠ", "대왕 먹방이다"] },
 ];
 
+export type ItemId = "mic" | "camera" | "light" | "chair" | "headset" | "pc" | "deco" | "fridge";
+
+export interface ShopItem {
+  id: ItemId;
+  emoji: string;
+  name: string;
+  price: number;
+  /** 가게에 보여 줄 효과 설명. 실제 효과는 LiveTube 의 계산에서 이 id 로 적용한다. */
+  effect: string;
+}
+
+/** 후원금으로 사는 방송 장비. 한 번 사면 계속 쓴다. */
+export const SHOP_ITEMS: ShopItem[] = [
+  { id: "mic", emoji: "🎤", name: "좋은 마이크", price: 5000, effect: "목소리가 좋아져요 — 말할 때 분위기 1.5배" },
+  { id: "light", emoji: "💡", name: "방송 조명", price: 8000, effect: "화면이 환해져요 — 시청자 +25%" },
+  { id: "camera", emoji: "📷", name: "고화질 카메라", price: 12000, effect: "움직임이 잘 보여요 — 움직일 때 분위기 1.5배" },
+  { id: "chair", emoji: "🪑", name: "편한 의자", price: 15000, effect: "덜 지쳐요 — 배고파지는 속도 40% 느리게" },
+  { id: "headset", emoji: "🎧", name: "헤드셋", price: 20000, effect: "채팅을 잘 들어요 — 내 말에 시청자가 더 많이 대답" },
+  { id: "fridge", emoji: "🧊", name: "미니 냉장고", price: 25000, effect: "간식 비축 — 음식값 반값" },
+  { id: "deco", emoji: "🧸", name: "방 꾸미기", price: 40000, effect: "예쁜 방 — 분위기가 천천히 식어요" },
+  { id: "pc", emoji: "🖥️", name: "방송용 컴퓨터", price: 80000, effect: "방송이 쾌적해요 — 후원이 2배 자주" },
+];
+
 /** 배가 고플 때 시청자 채팅 */
 export const HUNGRY_CHATS = ["배고파 보여요 ㅠㅠ", "밥 좀 드세요!", "힘 없어 보여요", "먹방 해주세요~", "라면이라도 드세요"];
 /** 배부름이 0 이 되어 팬이 나갈 때 */
