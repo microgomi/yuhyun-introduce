@@ -259,7 +259,28 @@ const MEGA_LEVELS: BuildingLevel[] = Array.from({ length: MEGA_LEVEL_COUNT }, (_
   };
 });
 
-const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS, ...MEGA_LEVELS];
+// --- 그다음 1000단계(총 1510단계) ---
+// 같은 테마×건물 조합을 이어서 쓰고, 한 바퀴(400개)를 돌 때마다 Ⅱ·Ⅲ·Ⅳ 를 붙인다.
+// 1.01배씩 늘어난다(마지막 약 4e30). 1% 차이라 네 자리까지 남겨야 이웃 단계가 겹치지 않는다.
+const GIGA_LEVEL_COUNT = 1000;
+const GIGA_LEVEL_GROWTH = 1.01;
+const CYCLE_MARKS = ["", " Ⅱ", " Ⅲ", " Ⅳ", " Ⅴ"];
+
+const GIGA_LEVELS: BuildingLevel[] = Array.from({ length: GIGA_LEVEL_COUNT }, (_, i) => {
+  const j = MEGA_LEVEL_COUNT + i; // 앞 386단계에 이어서 이름을 돈다
+  const perCycle = MEGA_THEMES.length * MEGA_STRUCTURES.length;
+  const theme = MEGA_THEMES[Math.floor(j / MEGA_STRUCTURES.length) % MEGA_THEMES.length];
+  const mark = CYCLE_MARKS[Math.min(CYCLE_MARKS.length - 1, Math.floor(j / perCycle))];
+  const last = i === GIGA_LEVEL_COUNT - 1;
+  return {
+    name: last ? "진짜 최종 · 끝없는 건축의 신" : `${theme.name} ${MEGA_STRUCTURES[j % MEGA_STRUCTURES.length]}${mark}`,
+    emoji: last ? "🌠" : theme.emojis[j % theme.emojis.length],
+    blocksNeeded: roundNice(MEGA_LEVELS[MEGA_LEVELS.length - 1].blocksNeeded * Math.pow(GIGA_LEVEL_GROWTH, i + 1), 4),
+    color: last ? "from-fuchsia-500 via-amber-300 to-cyan-400" : theme.color,
+  };
+});
+
+const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS, ...MEGA_LEVELS, ...GIGA_LEVELS];
 
 interface CountryUpgrade {
   id: string;
@@ -313,7 +334,67 @@ const COUNTRIES: CountryUpgrade[] = [
   { id: "iceland", name: "아이슬란드", flag: "🇮🇸", desc: "빙하 궁전! 클릭 +206Qi, 자동 +275Qi", cost: 1e23, clickBonus: 2.06e20, autoBonus: 2.75e20, landmark: "🧊" },
   { id: "newzealand", name: "뉴질랜드", flag: "🇳🇿", desc: "호빗 마을! 클릭 +825Qi, 자동 +1.1Sx", cost: 5e23, clickBonus: 8.25e20, autoBonus: 1.1e21, landmark: "🏡" },
   { id: "antarctica", name: "남극", flag: "🇦🇶", desc: "펭귄 기지! 클릭 +3.3Sx, 자동 +4.4Sx", cost: 2e24, clickBonus: 3.3e21, autoBonus: 4.4e21, landmark: "🐧" },
+  // 남극 다음 50개국. 가격은 4배씩, 보너스(1000배 적용 전)는 가격에 맞춰 커진다.
+  { id: "portugal", name: "포르투갈", flag: "🇵🇹", desc: "벨렘 탑!", cost: 8e24, clickBonus: 1.2e22, autoBonus: 1.6e22, landmark: "⚓" },
+  { id: "belgium", name: "벨기에", flag: "🇧🇪", desc: "아토미움!", cost: 3.2e25, clickBonus: 4.8e22, autoBonus: 6.4e22, landmark: "⚛️" },
+  { id: "austria", name: "오스트리아", flag: "🇦🇹", desc: "쇤브룬 궁전!", cost: 1.28e26, clickBonus: 1.92e23, autoBonus: 2.56e23, landmark: "🎼" },
+  { id: "czech", name: "체코", flag: "🇨🇿", desc: "프라하 성!", cost: 5.12e26, clickBonus: 7.68e23, autoBonus: 1.02e24, landmark: "🏰" },
+  { id: "poland", name: "폴란드", flag: "🇵🇱", desc: "바벨 성!", cost: 2.05e27, clickBonus: 3.07e24, autoBonus: 4.1e24, landmark: "🐉" },
+  { id: "hungary", name: "헝가리", flag: "🇭🇺", desc: "국회의사당!", cost: 8.19e27, clickBonus: 1.23e25, autoBonus: 1.64e25, landmark: "🏛️" },
+  { id: "sweden", name: "스웨덴", flag: "🇸🇪", desc: "얼음 호텔!", cost: 3.28e28, clickBonus: 4.92e25, autoBonus: 6.55e25, landmark: "🧊" },
+  { id: "denmark", name: "덴마크", flag: "🇩🇰", desc: "레고 하우스!", cost: 1.31e29, clickBonus: 1.97e26, autoBonus: 2.62e26, landmark: "🧱" },
+  { id: "ireland", name: "아일랜드", flag: "🇮🇪", desc: "모허 절벽!", cost: 5.24e29, clickBonus: 7.86e26, autoBonus: 1.05e27, landmark: "☘️" },
+  { id: "croatia", name: "크로아티아", flag: "🇭🇷", desc: "두브로브니크 성벽!", cost: 2.1e30, clickBonus: 3.15e27, autoBonus: 4.19e27, landmark: "🏯" },
+  { id: "ukraine", name: "우크라이나", flag: "🇺🇦", desc: "황금 돔 성당!", cost: 8.39e30, clickBonus: 1.26e28, autoBonus: 1.68e28, landmark: "🌻" },
+  { id: "romania", name: "루마니아", flag: "🇷🇴", desc: "드라큘라 성!", cost: 3.36e31, clickBonus: 5.03e28, autoBonus: 6.71e28, landmark: "🦇" },
+  { id: "bulgaria", name: "불가리아", flag: "🇧🇬", desc: "릴라 수도원!", cost: 1.34e32, clickBonus: 2.01e29, autoBonus: 2.68e29, landmark: "🌹" },
+  { id: "serbia", name: "세르비아", flag: "🇷🇸", desc: "베오그라드 요새!", cost: 5.37e32, clickBonus: 8.05e29, autoBonus: 1.07e30, landmark: "🛡️" },
+  { id: "estonia", name: "에스토니아", flag: "🇪🇪", desc: "탈린 구시가지!", cost: 2.15e33, clickBonus: 3.22e30, autoBonus: 4.29e30, landmark: "🏘️" },
+  { id: "latvia", name: "라트비아", flag: "🇱🇻", desc: "리가 대성당!", cost: 8.59e33, clickBonus: 1.29e31, autoBonus: 1.72e31, landmark: "⛪" },
+  { id: "lithuania", name: "리투아니아", flag: "🇱🇹", desc: "트라카이 성!", cost: 3.44e34, clickBonus: 5.15e31, autoBonus: 6.87e31, landmark: "🛶" },
+  { id: "georgia", name: "조지아", flag: "🇬🇪", desc: "카즈베기 교회!", cost: 1.37e35, clickBonus: 2.06e32, autoBonus: 2.75e32, landmark: "⛰️" },
+  { id: "armenia", name: "아르메니아", flag: "🇦🇲", desc: "아라라트 수도원!", cost: 5.5e35, clickBonus: 8.25e32, autoBonus: 1.1e33, landmark: "🍑" },
+  { id: "iran", name: "이란", flag: "🇮🇷", desc: "이맘 광장!", cost: 2.2e36, clickBonus: 3.3e33, autoBonus: 4.4e33, landmark: "🕌" },
+  { id: "iraq", name: "이라크", flag: "🇮🇶", desc: "바빌론 공중정원!", cost: 8.8e36, clickBonus: 1.32e34, autoBonus: 1.76e34, landmark: "🌿" },
+  { id: "israel", name: "이스라엘", flag: "🇮🇱", desc: "예루살렘 성벽!", cost: 3.52e37, clickBonus: 5.28e34, autoBonus: 7.04e34, landmark: "🧱" },
+  { id: "jordan", name: "요르단", flag: "🇯🇴", desc: "페트라!", cost: 1.41e38, clickBonus: 2.11e35, autoBonus: 2.81e35, landmark: "🏜️" },
+  { id: "qatar", name: "카타르", flag: "🇶🇦", desc: "루사일 경기장!", cost: 5.63e38, clickBonus: 8.44e35, autoBonus: 1.13e36, landmark: "⚽" },
+  { id: "kuwait", name: "쿠웨이트", flag: "🇰🇼", desc: "쿠웨이트 타워!", cost: 2.25e39, clickBonus: 3.38e36, autoBonus: 4.5e36, landmark: "🗼" },
+  { id: "oman", name: "오만", flag: "🇴🇲", desc: "술탄 카부스 모스크!", cost: 9.01e39, clickBonus: 1.35e37, autoBonus: 1.8e37, landmark: "🕌" },
+  { id: "pakistan", name: "파키스탄", flag: "🇵🇰", desc: "바드샤히 모스크!", cost: 3.6e40, clickBonus: 5.4e37, autoBonus: 7.21e37, landmark: "🌙" },
+  { id: "bangladesh", name: "방글라데시", flag: "🇧🇩", desc: "국회의사당!", cost: 1.44e41, clickBonus: 2.16e38, autoBonus: 2.88e38, landmark: "🏛️" },
+  { id: "nepal", name: "네팔", flag: "🇳🇵", desc: "에베레스트 베이스캠프!", cost: 5.76e41, clickBonus: 8.65e38, autoBonus: 1.15e39, landmark: "🏔️" },
+  { id: "srilanka", name: "스리랑카", flag: "🇱🇰", desc: "시기리야 바위 요새!", cost: 2.31e42, clickBonus: 3.46e39, autoBonus: 4.61e39, landmark: "🪨" },
+  { id: "myanmar", name: "미얀마", flag: "🇲🇲", desc: "쉐다곤 파고다!", cost: 9.22e42, clickBonus: 1.38e40, autoBonus: 1.84e40, landmark: "🛕" },
+  { id: "laos", name: "라오스", flag: "🇱🇦", desc: "탓루앙 사원!", cost: 3.69e43, clickBonus: 5.53e40, autoBonus: 7.38e40, landmark: "🪷" },
+  { id: "malaysia", name: "말레이시아", flag: "🇲🇾", desc: "페트로나스 트윈 타워!", cost: 1.48e44, clickBonus: 2.21e41, autoBonus: 2.95e41, landmark: "🏙️" },
+  { id: "indonesia", name: "인도네시아", flag: "🇮🇩", desc: "보로부두르!", cost: 5.9e44, clickBonus: 8.85e41, autoBonus: 1.18e42, landmark: "🌋" },
+  { id: "philippines", name: "필리핀", flag: "🇵🇭", desc: "초콜릿 힐스!", cost: 2.36e45, clickBonus: 3.54e42, autoBonus: 4.72e42, landmark: "🍫" },
+  { id: "taiwan", name: "대만", flag: "🇹🇼", desc: "타이베이 101!", cost: 9.44e45, clickBonus: 1.42e43, autoBonus: 1.89e43, landmark: "🧋" },
+  { id: "kazakhstan", name: "카자흐스탄", flag: "🇰🇿", desc: "바이테렉 타워!", cost: 3.78e46, clickBonus: 5.67e43, autoBonus: 7.56e43, landmark: "🥚" },
+  { id: "uzbekistan", name: "우즈베키스탄", flag: "🇺🇿", desc: "레기스탄 광장!", cost: 1.51e47, clickBonus: 2.27e44, autoBonus: 3.02e44, landmark: "🔷" },
+  { id: "morocco", name: "모로코", flag: "🇲🇦", desc: "하산 2세 모스크!", cost: 6.04e47, clickBonus: 9.07e44, autoBonus: 1.21e45, landmark: "🐫" },
+  { id: "algeria", name: "알제리", flag: "🇩🇿", desc: "순교자 기념탑!", cost: 2.42e48, clickBonus: 3.63e45, autoBonus: 4.84e45, landmark: "🌴" },
+  { id: "tunisia", name: "튀니지", flag: "🇹🇳", desc: "카르타고 유적!", cost: 9.67e48, clickBonus: 1.45e46, autoBonus: 1.93e46, landmark: "🏺" },
+  { id: "nigeria", name: "나이지리아", flag: "🇳🇬", desc: "주마 바위!", cost: 3.87e49, clickBonus: 5.8e46, autoBonus: 7.74e46, landmark: "🪨" },
+  { id: "ghana", name: "가나", flag: "🇬🇭", desc: "케이프코스트 성!", cost: 1.55e50, clickBonus: 2.32e47, autoBonus: 3.09e47, landmark: "🏖️" },
+  { id: "ethiopia", name: "에티오피아", flag: "🇪🇹", desc: "랄리벨라 암굴 교회!", cost: 6.19e50, clickBonus: 9.28e47, autoBonus: 1.24e48, landmark: "⛪" },
+  { id: "tanzania", name: "탄자니아", flag: "🇹🇿", desc: "킬리만자로 산장!", cost: 2.48e51, clickBonus: 3.71e48, autoBonus: 4.95e48, landmark: "🦓" },
+  { id: "madagascar", name: "마다가스카르", flag: "🇲🇬", desc: "바오밥 거리!", cost: 9.9e51, clickBonus: 1.49e49, autoBonus: 1.98e49, landmark: "🌳" },
+  { id: "colombia", name: "콜롬비아", flag: "🇨🇴", desc: "소금 대성당!", cost: 3.96e52, clickBonus: 5.94e49, autoBonus: 7.92e49, landmark: "🧂" },
+  { id: "venezuela", name: "베네수엘라", flag: "🇻🇪", desc: "엔젤 폭포!", cost: 1.58e53, clickBonus: 2.38e50, autoBonus: 3.17e50, landmark: "💧" },
+  { id: "cuba", name: "쿠바", flag: "🇨🇺", desc: "아바나 요새!", cost: 6.34e53, clickBonus: 9.51e50, autoBonus: 1.27e51, landmark: "🚗" },
+  { id: "jamaica", name: "자메이카", flag: "🇯🇲", desc: "블루마운틴 커피 농장!", cost: 2.54e54, clickBonus: 3.8e51, autoBonus: 5.07e51, landmark: "☕" },
 ];
+
+/** 나라 보너스 배율. 표의 clickBonus·autoBonus 에 곱해서 준다. */
+const COUNTRY_POWER = 1000;
+
+/** 나라 카드 설명: "에펠탑!" 부분만 표에서 쓰고 숫자는 실제 보너스로 만든다(배율이 바뀌어도 어긋나지 않게). */
+function countryDesc(country: CountryUpgrade): string {
+  const title = country.desc.split("!")[0];
+  return `${title}! 클릭 +${formatNumber(country.clickBonus * COUNTRY_POWER)}, 자동 +${formatNumber(country.autoBonus * COUNTRY_POWER)}`;
+}
 
 // --- 자동 클릭 ---
 /** 단계별 초당 자동 클릭 횟수와 그 단계로 올리는 비용(블록). index 0 은 "없음". */
@@ -347,8 +428,11 @@ interface Pet {
   baseCost: number;
 }
 
-const PET_MAX_LEVEL = 10;
-const PET_COST_MULTIPLIER = 3;
+const PET_MAX_LEVEL = 1000;
+/** 레벨이 1000까지 가므로 비용은 1.15배씩만 오른다(3배씩이면 금방 계산할 수 없는 수가 된다). */
+const PET_COST_MULTIPLIER = 1.15;
+/** 펫 능력 배율. 표의 perLevel 에 곱한다. */
+const PET_POWER = 1000;
 
 const PETS: Pet[] = [
   { id: "dog", name: "멍멍이", emoji: "🐶", job: "벽돌을 물어 와요", power: "auto", perLevel: 100, baseCost: 1e3 },
@@ -359,6 +443,27 @@ const PETS: Pet[] = [
   { id: "owl", name: "부엉이", emoji: "🦉", job: "똑똑한 설계도를 그려요", power: "allPct", perLevel: 5, baseCost: 1e9 },
   { id: "dragon", name: "드래곤", emoji: "🐉", job: "불로 블록을 구워요", power: "auto", perLevel: 5e8, baseCost: 1e11 },
   { id: "unicorn", name: "유니콘", emoji: "🦄", job: "무지개 마법으로 모든 게 빨라져요", power: "allPct", perLevel: 20, baseCost: 1e13 },
+  // 새 펫 20마리. 입양 비용이 10배씩 오른다.
+  { id: "panda", name: "판다", emoji: "🐼", job: "대나무 비계를 세워요", power: "auto", perLevel: 5e11, baseCost: 1e14 },
+  { id: "lion", name: "사자", emoji: "🦁", job: "어흥! 현장 반장", power: "clickPct", perLevel: 50, baseCost: 1e15 },
+  { id: "penguin", name: "펭귄", emoji: "🐧", job: "줄지어 콕콕 클릭해요", power: "autoClick", perLevel: 5, baseCost: 1e16 },
+  { id: "elephant", name: "코끼리", emoji: "🐘", job: "코로 기둥을 들어 올려요", power: "auto", perLevel: 5e13, baseCost: 1e17 },
+  { id: "shark", name: "상어", emoji: "🦈", job: "바닷속 도시를 지어요", power: "auto", perLevel: 5e14, baseCost: 1e18 },
+  { id: "peacock", name: "공작", emoji: "🦚", job: "화려한 장식 담당", power: "allPct", perLevel: 30, baseCost: 1e19 },
+  { id: "octopus", name: "문어", emoji: "🐙", job: "여덟 다리로 동시에 클릭", power: "autoClick", perLevel: 10, baseCost: 1e20 },
+  { id: "trex", name: "티라노", emoji: "🦖", job: "쿵쾅쿵쾅 땅 다지기", power: "auto", perLevel: 5e17, baseCost: 1e21 },
+  { id: "turtle", name: "거북", emoji: "🐢", job: "느리지만 절대 안 쉬어요", power: "auto", perLevel: 5e18, baseCost: 1e22 },
+  { id: "eagle", name: "독수리", emoji: "🦅", job: "하늘에서 설계를 봐요", power: "clickPct", perLevel: 100, baseCost: 1e23 },
+  { id: "wolf", name: "늑대", emoji: "🐺", job: "무리 지어 건축해요", power: "auto", perLevel: 5e20, baseCost: 1e24 },
+  { id: "butterfly", name: "나비", emoji: "🦋", job: "날갯짓 한 번에 모든 게 바뀌어요", power: "allPct", perLevel: 50, baseCost: 1e25 },
+  { id: "whale", name: "고래", emoji: "🐳", job: "바다만 한 블록을 날라요", power: "auto", perLevel: 5e22, baseCost: 1e26 },
+  { id: "gumiho", name: "구미호", emoji: "🦊", job: "꼬리 아홉 개로 클릭", power: "autoClick", perLevel: 20, baseCost: 1e27 },
+  { id: "phoenix", name: "불사조", emoji: "🐦‍🔥", job: "불타도 다시 지어요", power: "auto", perLevel: 5e24, baseCost: 1e28 },
+  { id: "bluedragon", name: "청룡", emoji: "🐲", job: "하늘의 수호신", power: "allPct", perLevel: 100, baseCost: 1e29 },
+  { id: "kraken", name: "크라켄", emoji: "🦑", job: "심해의 거대 건축가", power: "auto", perLevel: 5e26, baseCost: 1e30 },
+  { id: "spacemonster", name: "우주 괴물", emoji: "👾", job: "행성을 통째로 쌓아요", power: "auto", perLevel: 5e27, baseCost: 1e31 },
+  { id: "robopet", name: "로봇 강아지", emoji: "🤖", job: "쉬지 않고 초고속 클릭", power: "autoClick", perLevel: 50, baseCost: 1e32 },
+  { id: "starspirit", name: "별의 정령", emoji: "🌟", job: "별빛으로 모든 것을 키워요", power: "allPct", perLevel: 200, baseCost: 1e33 },
 ];
 
 function petCost(pet: Pet, level: number): number {
@@ -366,16 +471,16 @@ function petCost(pet: Pet, level: number): number {
 }
 
 function petEffectText(pet: Pet, level: number): string {
-  const v = pet.perLevel * Math.max(1, level);
+  const v = pet.perLevel * PET_POWER * Math.max(1, level);
   switch (pet.power) {
     case "auto":
       return `초당 +${formatNumber(v)} 블록`;
     case "clickPct":
-      return `클릭 +${v}%`;
+      return `클릭 +${formatNumber(v)}%`;
     case "autoClick":
-      return `자동 클릭 +${v}회/초`;
+      return `자동 클릭 +${formatNumber(v)}회/초`;
     case "allPct":
-      return `모든 생산 +${v}%`;
+      return `모든 생산 +${formatNumber(v)}%`;
   }
 }
 
@@ -405,6 +510,8 @@ interface BuildSave {
   autoClickLevel?: number; autoClickOn?: boolean; petLevels?: Record<string, number>;
   /** 저장 시점의 실제 초당 생산량(펫·보너스 포함). 오프라인 보상에 쓴다. */
   effectiveAuto?: number;
+  /** 이 저장에서 나라 보너스에 적용된 배율. 옛 저장은 1(없음)이다. */
+  countryPower?: number;
 }
 
 interface BuildOfflineReward { minutes: number; blocksGained: number; }
@@ -438,7 +545,7 @@ export default function BuildingPage() {
   for (const pet of PETS) {
     const lv = petLevels[pet.id] || 0;
     if (lv === 0) continue;
-    const v = pet.perLevel * lv;
+    const v = pet.perLevel * PET_POWER * lv;
     if (pet.power === "auto") petAuto += v;
     else if (pet.power === "clickPct") petClickPct += v;
     else if (pet.power === "allPct") petAllPct += v;
@@ -458,6 +565,14 @@ export default function BuildingPage() {
       setBlocks(s.blocks); setTotalBlocks(s.totalBlocks);
       setClickPower(s.clickPower); setAutoPerSec(s.autoPerSec);
       setUpgradeLevels(s.upgradeLevels); setOwnedCountries(s.ownedCountries);
+      // 나라 보너스가 1000배로 바뀌기 전에 산 나라는, 차이만큼 한 번 더 얹어 준다.
+      const oldPower = s.countryPower ?? 1;
+      if (oldPower < COUNTRY_POWER) {
+        const owned = COUNTRIES.filter((c) => s.ownedCountries[c.id]);
+        const extra = COUNTRY_POWER - oldPower;
+        setClickPower((p) => p + owned.reduce((sum, c) => sum + c.clickBonus, 0) * extra);
+        setAutoPerSec((p) => p + owned.reduce((sum, c) => sum + c.autoBonus, 0) * extra);
+      }
       setAutoClickLevel(Math.min(AUTO_CLICK_LEVELS.length - 1, Math.max(0, Math.floor(s.autoClickLevel ?? 0))));
       setAutoClickOn(s.autoClickOn ?? true);
       setPetLevels(s.petLevels ?? {});
@@ -480,7 +595,7 @@ export default function BuildingPage() {
     const save = () => {
       const data: BuildSave = {
         blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, timestamp: Date.now(),
-        autoClickLevel, autoClickOn, petLevels, effectiveAuto,
+        autoClickLevel, autoClickOn, petLevels, effectiveAuto, countryPower: COUNTRY_POWER,
       };
       localStorage.setItem(BUILD_SAVE_KEY, JSON.stringify(data));
     };
@@ -575,8 +690,8 @@ export default function BuildingPage() {
     if (blocks < country.cost || ownedCountries[country.id]) return;
     setBlocks((prev) => prev - country.cost);
     setOwnedCountries((prev) => ({ ...prev, [country.id]: true }));
-    setClickPower((prev) => prev + country.clickBonus);
-    setAutoPerSec((prev) => prev + country.autoBonus);
+    setClickPower((prev) => prev + country.clickBonus * COUNTRY_POWER);
+    setAutoPerSec((prev) => prev + country.autoBonus * COUNTRY_POWER);
   };
 
   const buyAutoClick = () => {
@@ -954,7 +1069,7 @@ export default function BuildingPage() {
                     <span className="text-4xl">{country.flag}</span>
                     <p className="mt-2 text-lg font-black text-zinc-900 dark:text-white">{country.name}</p>
                     <p className="text-2xl">{country.landmark}</p>
-                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{country.desc}</p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{countryDesc(country)}</p>
                     {owned ? (
                       <p className="mt-2 text-sm font-bold text-green-600 dark:text-green-400">보유 중 ✅</p>
                     ) : (
