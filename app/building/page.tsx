@@ -198,9 +198,9 @@ const EXTRA_CHAPTERS: { title: string; color: string; levels: [string, string][]
   },
 ];
 
-/** 보기 좋게 앞 두 자리만 남긴다(예: 1234567 → 1200000) */
-function roundNice(n: number): number {
-  const p = Math.pow(10, Math.floor(Math.log10(n)) - 1);
+/** 보기 좋게 앞 digits 자리만 남긴다(예: 1234567 → 1200000) */
+function roundNice(n: number, digits = 2): number {
+  const p = Math.pow(10, Math.floor(Math.log10(n)) - (digits - 1));
   return Math.round(n / p) * p;
 }
 
@@ -213,7 +213,53 @@ const EXTRA_LEVELS: BuildingLevel[] = EXTRA_CHAPTERS.flatMap((chapter, c) =>
   })),
 );
 
-const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS];
+// --- 궁극의 건축물 다음 386단계(총 510단계) ---
+// 양이 많아서 테마 20개 × 건물 20종을 조합해 이름을 만든다(테마 하나에 건물 20단계).
+// 필요 블록은 1.04배씩 늘어난다(마지막 약 190Sp). 더 크게 늘리면 ??? 아이템으로도 끝까지 갈 수 없다.
+const MEGA_LEVEL_COUNT = 386;
+const MEGA_LEVEL_GROWTH = 1.04;
+
+const MEGA_THEMES: { name: string; color: string; emojis: string[] }[] = [
+  { name: "황금", color: "from-yellow-300 to-amber-500", emojis: ["🪙", "👑", "🏆"] },
+  { name: "수정", color: "from-cyan-200 to-sky-400", emojis: ["💎", "🔮", "🧊"] },
+  { name: "별빛", color: "from-indigo-300 to-violet-500", emojis: ["✨", "⭐", "🌟"] },
+  { name: "무지개", color: "from-red-400 via-yellow-300 to-blue-400", emojis: ["🌈", "🦄", "🎨"] },
+  { name: "그림자", color: "from-zinc-600 to-zinc-900", emojis: ["🌑", "🦇", "🕶️"] },
+  { name: "불꽃", color: "from-orange-400 to-red-600", emojis: ["🔥", "🌋", "☄️"] },
+  { name: "얼음", color: "from-sky-100 to-cyan-400", emojis: ["❄️", "⛄", "🐧"] },
+  { name: "번개", color: "from-yellow-200 to-yellow-500", emojis: ["⚡", "🌩️", "🔋"] },
+  { name: "바다", color: "from-blue-400 to-teal-600", emojis: ["🌊", "🐋", "🐚"] },
+  { name: "숲", color: "from-green-400 to-emerald-700", emojis: ["🌳", "🍄", "🦌"] },
+  { name: "사탕", color: "from-pink-300 to-rose-400", emojis: ["🍭", "🍬", "🧁"] },
+  { name: "로봇", color: "from-slate-300 to-slate-600", emojis: ["🤖", "⚙️", "🛰️"] },
+  { name: "꿈", color: "from-purple-200 to-fuchsia-400", emojis: ["💤", "☁️", "🌙"] },
+  { name: "거울", color: "from-gray-100 to-gray-400", emojis: ["🪞", "💠", "🔷"] },
+  { name: "용", color: "from-emerald-400 to-red-500", emojis: ["🐉", "🐲", "🥚"] },
+  { name: "은하", color: "from-violet-600 to-black", emojis: ["🌌", "🪐", "🔭"] },
+  { name: "영혼", color: "from-teal-200 to-indigo-400", emojis: ["👻", "🕯️", "🦋"] },
+  { name: "태양", color: "from-amber-300 to-orange-500", emojis: ["☀️", "🌻", "🔆"] },
+  { name: "달빛", color: "from-slate-200 to-indigo-300", emojis: ["🌕", "🌜", "🐺"] },
+  { name: "전설", color: "from-red-500 via-amber-400 to-fuchsia-600", emojis: ["🏅", "🗡️", "🛡️"] },
+];
+
+const MEGA_STRUCTURES = [
+  "성", "탑", "궁전", "요새", "신전", "도시", "다리", "정원", "왕국", "성채",
+  "등대", "피라미드", "돔", "기지", "광장", "미로", "첨탑", "방주", "제국", "왕좌",
+];
+
+const MEGA_LEVELS: BuildingLevel[] = Array.from({ length: MEGA_LEVEL_COUNT }, (_, i) => {
+  const theme = MEGA_THEMES[Math.floor(i / MEGA_STRUCTURES.length) % MEGA_THEMES.length];
+  const last = i === MEGA_LEVEL_COUNT - 1;
+  return {
+    name: last ? "최종 건축의 왕좌" : `${theme.name} ${MEGA_STRUCTURES[i % MEGA_STRUCTURES.length]}`,
+    emoji: last ? "🏁" : theme.emojis[i % theme.emojis.length],
+    // 4%씩만 늘어서 두 자리로 자르면 이웃 단계가 같아진다. 세 자리까지 남긴다.
+    blocksNeeded: roundNice(EXTRA_LEVELS[EXTRA_LEVELS.length - 1].blocksNeeded * Math.pow(MEGA_LEVEL_GROWTH, i + 1), 3),
+    color: last ? "from-red-500 via-yellow-300 to-violet-600" : theme.color,
+  };
+});
+
+const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS, ...MEGA_LEVELS];
 
 interface CountryUpgrade {
   id: string;
