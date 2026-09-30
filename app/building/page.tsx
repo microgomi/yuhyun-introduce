@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // --- Clicker Game Types ---
-type UpgradeTier = "normal" | "advanced" | "legendary" | "mythic";
+type UpgradeTier = "normal" | "advanced" | "legendary" | "mythic" | "transcendent" | "eternal" | "absolute";
+
+/** 상점에 보여 줄 등급 순서(낮은 등급부터) */
+const TIER_ORDER: UpgradeTier[] = ["normal", "advanced", "legendary", "mythic", "transcendent", "eternal", "absolute"];
 
 interface Upgrade {
   id: string;
@@ -23,6 +26,9 @@ const TIER_INFO: Record<UpgradeTier, { label: string; emoji: string; border: str
   advanced: { label: "고급", emoji: "🟢", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-emerald-400 dark:border-emerald-700", activeBg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-500" },
   legendary: { label: "전설", emoji: "🟣", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-purple-400 dark:border-purple-700", activeBg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-500" },
   mythic: { label: "신화", emoji: "🔴", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-amber-400 dark:border-amber-600", activeBg: "bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/40", text: "text-amber-500" },
+  transcendent: { label: "초월", emoji: "🔷", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-cyan-400 dark:border-cyan-500", activeBg: "bg-gradient-to-r from-cyan-50 to-sky-100 dark:from-cyan-950/50 dark:to-sky-950/50", text: "text-cyan-500" },
+  eternal: { label: "영원", emoji: "💖", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-pink-400 dark:border-pink-500", activeBg: "bg-gradient-to-r from-pink-50 via-fuchsia-50 to-rose-100 dark:from-pink-950/50 dark:via-fuchsia-950/50 dark:to-rose-950/50", text: "text-pink-500" },
+  absolute: { label: "절대", emoji: "👑", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-yellow-400 dark:border-yellow-400", activeBg: "bg-gradient-to-r from-red-50 via-yellow-50 to-violet-100 dark:from-red-950/50 dark:via-yellow-950/40 dark:to-violet-950/50", text: "bg-gradient-to-r from-red-500 via-yellow-500 to-violet-500 bg-clip-text text-transparent" },
 };
 
 interface BuildingLevel {
@@ -53,6 +59,21 @@ const UPGRADES: Upgrade[] = [
   { id: "multiverse", name: "멀티버스 공장", emoji: "🌐", desc: "초당 +10000 자동 블록", baseCost: 10000000, costMultiplier: 2.3, effect: "autoClick", effectValue: 10000, tier: "mythic" },
   { id: "godhand", name: "신의 손", emoji: "🖐️", desc: "클릭당 +50000 블록", baseCost: 50000000, costMultiplier: 2.2, effect: "clickPower", effectValue: 50000, tier: "mythic" },
   { id: "infinity", name: "무한의 힘", emoji: "♾️", desc: "초당 +50000 자동 블록", baseCost: 100000000, costMultiplier: 2.5, effect: "autoClick", effectValue: 50000, tier: "mythic" },
+  // 초월 — 여기부터 자동 건축은 초당 150M(1억 5천만) 이상
+  { id: "galaxyhammer", name: "은하 망치", emoji: "🌠", desc: "클릭당 +30M 블록", baseCost: 300_000_000, costMultiplier: 2.0, effect: "clickPower", effectValue: 30_000_000, tier: "transcendent" },
+  { id: "planetfactory", name: "행성 공장", emoji: "🪐", desc: "초당 +150M 자동 블록", baseCost: 1_000_000_000, costMultiplier: 2.2, effect: "autoClick", effectValue: 150_000_000, tier: "transcendent" },
+  { id: "cometcrane", name: "혜성 크레인", emoji: "☄️", desc: "클릭당 +100M 블록", baseCost: 5_000_000_000, costMultiplier: 2.1, effect: "clickPower", effectValue: 100_000_000, tier: "transcendent" },
+  { id: "galaxycrew", name: "은하 건설단", emoji: "🌌", desc: "초당 +500M 자동 블록", baseCost: 20_000_000_000, costMultiplier: 2.3, effect: "autoClick", effectValue: 500_000_000, tier: "transcendent" },
+  // 영원
+  { id: "blackhole", name: "블랙홀 압축기", emoji: "🕳️", desc: "클릭당 +1B 블록", baseCost: 100_000_000_000, costMultiplier: 2.1, effect: "clickPower", effectValue: 1_000_000_000, tier: "eternal" },
+  { id: "supernova", name: "초신성 엔진", emoji: "🌟", desc: "초당 +2B 자동 블록", baseCost: 300_000_000_000, costMultiplier: 2.3, effect: "autoClick", effectValue: 2_000_000_000, tier: "eternal" },
+  { id: "timetower", name: "시간의 탑", emoji: "⏳", desc: "클릭당 +5B 블록", baseCost: 1_000_000_000_000, costMultiplier: 2.2, effect: "clickPower", effectValue: 5_000_000_000, tier: "eternal" },
+  { id: "eternalcastle", name: "영원의 성", emoji: "🔮", desc: "초당 +10B 자동 블록", baseCost: 5_000_000_000_000, costMultiplier: 2.4, effect: "autoClick", effectValue: 10_000_000_000, tier: "eternal" },
+  // 절대
+  { id: "creationeye", name: "창조의 눈", emoji: "👁️", desc: "클릭당 +50B 블록", baseCost: 50_000_000_000_000, costMultiplier: 2.2, effect: "clickPower", effectValue: 50_000_000_000, tier: "absolute" },
+  { id: "rainbowgate", name: "무지개 차원로", emoji: "🌈", desc: "초당 +100B 자동 블록", baseCost: 100_000_000_000_000, costMultiplier: 2.4, effect: "autoClick", effectValue: 100_000_000_000, tier: "absolute" },
+  { id: "absolutecrown", name: "절대자의 왕관", emoji: "👑", desc: "클릭당 +300B 블록", baseCost: 1_000_000_000_000_000, costMultiplier: 2.3, effect: "clickPower", effectValue: 300_000_000_000, tier: "absolute" },
+  { id: "absolutebuild", name: "절대 건축", emoji: "🔱", desc: "초당 +1T 자동 블록", baseCost: 5_000_000_000_000_000, costMultiplier: 2.5, effect: "autoClick", effectValue: 1_000_000_000_000, tier: "absolute" },
 ];
 
 const BUILDING_LEVELS: BuildingLevel[] = [
@@ -107,7 +128,9 @@ const COUNTRIES: CountryUpgrade[] = [
 ];
 
 function formatNumber(n: number): string {
-  // 24단계 확장으로 총 블록이 조(1e12) 단위까지 올라간다. 큰 단위부터 검사해야 한다.
+  // 초월·영원·절대 등급으로 블록이 경(1e16) 단위를 넘는다. 큰 단위부터 검사해야 한다.
+  if (n >= 1e18) return (n / 1e18).toFixed(1) + "Qi";
+  if (n >= 1e15) return (n / 1e15).toFixed(1) + "Qa";
   if (n >= 1e12) return (n / 1e12).toFixed(1) + "T";
   if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
@@ -371,7 +394,7 @@ export default function BuildingPage() {
           {/* Upgrades */}
           <div className="space-y-2 overflow-y-auto" style={{ maxHeight: 480 }}>
             <h3 className="text-center text-lg font-bold text-zinc-900 dark:text-white">🛒 업그레이드</h3>
-            {(["normal", "advanced", "legendary", "mythic"] as UpgradeTier[]).map((tier) => {
+            {TIER_ORDER.map((tier) => {
               const tierUpgrades = UPGRADES.filter((u) => u.tier === tier);
               const info = TIER_INFO[tier];
               return (
