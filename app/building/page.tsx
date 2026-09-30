@@ -246,6 +246,27 @@ const COUNTRIES: CountryUpgrade[] = [
   { id: "canada", name: "캐나다", flag: "🇨🇦", desc: "CN 타워! 클릭 +150M, 자동 +200M", cost: 1e11, clickBonus: 1.5e8, autoBonus: 2e8, landmark: "🗼" },
   { id: "australia", name: "호주", flag: "🇦🇺", desc: "오페라 하우스! 클릭 +750M, 자동 +1B", cost: 5e11, clickBonus: 7.5e8, autoBonus: 1e9, landmark: "🎭" },
   { id: "mexico", name: "멕시코", flag: "🇲🇽", desc: "치첸이트사 피라미드! 클릭 +3B, 자동 +4B", cost: 2e12, clickBonus: 3e9, autoBonus: 4e9, landmark: "🛕" },
+  // 멕시코 다음 20개국. 가격은 4배씩, 보너스는 가격에 맞춰 커진다(자동 = 가격의 0.2%, 클릭 = 자동의 3/4).
+  { id: "spain", name: "스페인", flag: "🇪🇸", desc: "사그라다 파밀리아! 클릭 +12B, 자동 +16B", cost: 8e12, clickBonus: 1.2e10, autoBonus: 1.6e10, landmark: "🕍" },
+  { id: "netherlands", name: "네덜란드", flag: "🇳🇱", desc: "풍차 마을! 클릭 +48B, 자동 +64B", cost: 3e13, clickBonus: 4.8e10, autoBonus: 6.4e10, landmark: "🌷" },
+  { id: "switzerland", name: "스위스", flag: "🇨🇭", desc: "알프스 산장! 클릭 +192B, 자동 +256B", cost: 1e14, clickBonus: 1.92e11, autoBonus: 2.56e11, landmark: "🏔️" },
+  { id: "turkiye", name: "튀르키예", flag: "🇹🇷", desc: "아야 소피아! 클릭 +768B, 자동 +1T", cost: 5e14, clickBonus: 7.68e11, autoBonus: 1.02e12, landmark: "🧿" },
+  { id: "mongolia", name: "몽골", flag: "🇲🇳", desc: "초원의 게르 도시! 클릭 +3.1T, 자동 +4.1T", cost: 2e15, clickBonus: 3.07e12, autoBonus: 4.1e12, landmark: "⛺" },
+  { id: "peru", name: "페루", flag: "🇵🇪", desc: "마추픽추! 클릭 +12.3T, 자동 +16.4T", cost: 8e15, clickBonus: 1.23e13, autoBonus: 1.64e13, landmark: "🦙" },
+  { id: "cambodia", name: "캄보디아", flag: "🇰🇭", desc: "앙코르와트! 클릭 +49.2T, 자동 +65.5T", cost: 3e16, clickBonus: 4.92e13, autoBonus: 6.55e13, landmark: "🐘" },
+  { id: "thailand", name: "태국", flag: "🇹🇭", desc: "황금 왕궁! 클릭 +197T, 자동 +262T", cost: 1e17, clickBonus: 1.97e14, autoBonus: 2.62e14, landmark: "🏯" },
+  { id: "vietnam", name: "베트남", flag: "🇻🇳", desc: "하롱베이 수상 마을! 클릭 +786T, 자동 +1Qa", cost: 5e17, clickBonus: 7.86e14, autoBonus: 1.05e15, landmark: "⛵" },
+  { id: "singapore", name: "싱가포르", flag: "🇸🇬", desc: "마리나 베이 샌즈! 클릭 +3.1Qa, 자동 +4.2Qa", cost: 2e18, clickBonus: 3.15e15, autoBonus: 4.19e15, landmark: "🌃" },
+  { id: "saudi", name: "사우디아라비아", flag: "🇸🇦", desc: "사막의 킹덤 타워! 클릭 +12.6Qa, 자동 +16.8Qa", cost: 8e18, clickBonus: 1.26e16, autoBonus: 1.68e16, landmark: "🐪" },
+  { id: "southafrica", name: "남아공", flag: "🇿🇦", desc: "테이블 마운틴! 클릭 +50.3Qa, 자동 +67.1Qa", cost: 3e19, clickBonus: 5.03e16, autoBonus: 6.71e16, landmark: "🦁" },
+  { id: "kenya", name: "케냐", flag: "🇰🇪", desc: "사파리 요새! 클릭 +201Qa, 자동 +268Qa", cost: 1e20, clickBonus: 2.01e17, autoBonus: 2.68e17, landmark: "🦒" },
+  { id: "argentina", name: "아르헨티나", flag: "🇦🇷", desc: "이과수 폭포 다리! 클릭 +805Qa, 자동 +1.1Qi", cost: 5e20, clickBonus: 8.05e17, autoBonus: 1.07e18, landmark: "💦" },
+  { id: "chile", name: "칠레", flag: "🇨🇱", desc: "모아이 석상! 클릭 +3.2Qi, 자동 +4.3Qi", cost: 2e21, clickBonus: 3.22e18, autoBonus: 4.29e18, landmark: "🗿" },
+  { id: "norway", name: "노르웨이", flag: "🇳🇴", desc: "피오르 성! 클릭 +12.9Qi, 자동 +17.2Qi", cost: 9e21, clickBonus: 1.29e19, autoBonus: 1.72e19, landmark: "🏞️" },
+  { id: "finland", name: "핀란드", flag: "🇫🇮", desc: "산타 마을! 클릭 +51.5Qi, 자동 +68.7Qi", cost: 3e22, clickBonus: 5.15e19, autoBonus: 6.87e19, landmark: "🎅" },
+  { id: "iceland", name: "아이슬란드", flag: "🇮🇸", desc: "빙하 궁전! 클릭 +206Qi, 자동 +275Qi", cost: 1e23, clickBonus: 2.06e20, autoBonus: 2.75e20, landmark: "🧊" },
+  { id: "newzealand", name: "뉴질랜드", flag: "🇳🇿", desc: "호빗 마을! 클릭 +825Qi, 자동 +1.1Sx", cost: 5e23, clickBonus: 8.25e20, autoBonus: 1.1e21, landmark: "🏡" },
+  { id: "antarctica", name: "남극", flag: "🇦🇶", desc: "펭귄 기지! 클릭 +3.3Sx, 자동 +4.4Sx", cost: 2e24, clickBonus: 3.3e21, autoBonus: 4.4e21, landmark: "🐧" },
 ];
 
 // --- 자동 클릭 ---
