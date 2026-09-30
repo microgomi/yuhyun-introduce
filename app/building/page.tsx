@@ -76,7 +76,7 @@ const UPGRADES: Upgrade[] = [
   { id: "absolutebuild", name: "절대 건축", emoji: "🔱", desc: "초당 +1T 자동 블록", baseCost: 5_000_000_000_000_000, costMultiplier: 2.5, effect: "autoClick", effectValue: 1_000_000_000_000, tier: "absolute" },
 ];
 
-const BUILDING_LEVELS: BuildingLevel[] = [
+const BASE_LEVELS: BuildingLevel[] = [
   { name: "빈 땅", emoji: "🌱", blocksNeeded: 0, color: "from-green-400 to-emerald-500" },
   { name: "오두막", emoji: "🛖", blocksNeeded: 50, color: "from-amber-400 to-yellow-500" },
   { name: "집", emoji: "🏠", blocksNeeded: 200, color: "from-blue-400 to-sky-500" },
@@ -104,6 +104,81 @@ const BUILDING_LEVELS: BuildingLevel[] = [
   { name: "우주의 심장", emoji: "💗", blocksNeeded: 250000000000, color: "from-red-400 to-rose-600" },
   { name: "무한의 왕좌", emoji: "🏆", blocksNeeded: 600000000000, color: "from-amber-200 via-yellow-400 to-amber-600" },
 ];
+
+// --- 무한의 왕좌 다음 100단계 ---
+// 10단계씩 10개 장(테마)으로 나눈다. 필요 블록은 직전 단계의 1.2배씩 늘어난다(마지막 약 50Qi).
+// 앞 단계처럼 2.5배씩 늘리면 100단계 끝이 1e51 을 넘어 절대 도달할 수 없으므로 배율을 낮췄다.
+const EXTRA_LEVEL_GROWTH = 1.2;
+
+const EXTRA_CHAPTERS: { title: string; color: string; levels: [string, string][] }[] = [
+  {
+    title: "천상",
+    color: "from-sky-200 to-blue-400",
+    levels: [["구름 궁전", "☁️"], ["천사의 계단", "🪽"], ["무지개 다리", "🌈"], ["하늘 정원", "🌤️"], ["번개 탑", "⚡"], ["바람의 성", "🌬️"], ["달빛 호수", "🌙"], ["햇살 신전", "☀️"], ["별빛 분수", "⛲"], ["천상의 문", "🚪"]],
+  },
+  {
+    title: "원소",
+    color: "from-orange-400 to-red-600",
+    levels: [["불꽃 용광로", "🔥"], ["얼음 궁전", "🧊"], ["용암 요새", "🌋"], ["폭풍 탑", "🌪️"], ["대지의 뿌리", "🌳"], ["바다 신전", "🌊"], ["모래 성", "🏜️"], ["수정 동굴", "💎"], ["천둥 망루", "🌩️"], ["원소의 핵", "⚛️"]],
+  },
+  {
+    title: "보석",
+    color: "from-emerald-300 to-teal-600",
+    levels: [["루비 탑", "❤️"], ["사파이어 성", "💙"], ["에메랄드 도시", "💚"], ["자수정 궁", "💜"], ["황금 광산", "🪙"], ["진주 궁전", "🦪"], ["호박 신전", "🟠"], ["오팔 정원", "🤍"], ["다이아 왕관", "👑"], ["보석의 심장", "💠"]],
+  },
+  {
+    title: "신화 동물",
+    color: "from-rose-400 to-fuchsia-600",
+    levels: [["불사조 둥지", "🐦‍🔥"], ["용의 굴", "🐲"], ["유니콘 목장", "🦄"], ["그리핀 탑", "🦅"], ["크라켄 해저성", "🐙"], ["페가수스 마구간", "🐎"], ["구미호 사당", "🦊"], ["거북 섬", "🐢"], ["백호 산성", "🐯"], ["신수의 왕국", "🐉"]],
+  },
+  {
+    title: "시간",
+    color: "from-amber-200 to-stone-500",
+    levels: [["모래시계 탑", "⏳"], ["태엽 도시", "⚙️"], ["공룡 시대 기지", "🦖"], ["미래 도시", "🏙️"], ["시계탑 성", "🕰️"], ["과거의 문", "⏮️"], ["미래의 문", "⏭️"], ["영원의 순간", "⏸️"], ["시간 도서관", "📚"], ["시간의 끝", "⌛"]],
+  },
+  {
+    title: "차원",
+    color: "from-indigo-400 to-violet-700",
+    levels: [["거울 세계", "🪞"], ["뒤집힌 도시", "🙃"], ["꿈의 섬", "💤"], ["미로 차원", "🌀"], ["픽셀 월드", "👾"], ["종이 세상", "📜"], ["사탕 나라", "🍭"], ["장난감 왕국", "🧸"], ["그림자 성", "🌑"], ["차원의 틈", "🕳️"]],
+  },
+  {
+    title: "음악",
+    color: "from-pink-300 to-purple-500",
+    levels: [["피아노 궁전", "🎹"], ["기타 다리", "🎸"], ["드럼 요새", "🥁"], ["바이올린 탑", "🎻"], ["트럼펫 광장", "🎺"], ["색소폰 거리", "🎷"], ["마이크 무대", "🎤"], ["오케스트라 홀", "🎼"], ["노래하는 산", "🎶"], ["우주 교향곡", "🎵"]],
+  },
+  {
+    title: "빛",
+    color: "from-yellow-200 to-amber-400",
+    levels: [["촛불 마을", "🕯️"], ["등대 섬", "🗼"], ["네온 시티", "💡"], ["레이저 탑", "🔦"], ["오로라 궁", "🌌"], ["별빛 도시", "✨"], ["태양 발전소", "🔆"], ["빛의 정원", "🌟"], ["프리즘 신전", "🔺"], ["빛의 근원", "💫"]],
+  },
+  {
+    title: "우주 끝",
+    color: "from-slate-600 to-black",
+    levels: [["퀘이사 등대", "🔭"], ["중성자 요새", "🧲"], ["암흑 물질 공장", "⚫"], ["은하단 수도", "🌐"], ["우주 거미줄", "🕸️"], ["빅크런치 방벽", "🧱"], ["우주 알", "🥚"], ["끝없는 계단", "🪜"], ["마지막 별", "⭐"], ["우주의 끝", "🌠"]],
+  },
+  {
+    title: "궁극",
+    color: "from-red-500 via-yellow-400 to-violet-600",
+    levels: [["창조자의 작업실", "🛠️"], ["운명의 베틀", "🧵"], ["신들의 회의장", "🏛️"], ["만물의 도서관", "📖"], ["영혼의 정원", "🌸"], ["무한 거울 궁", "🔮"], ["전설의 왕관", "👑"], ["세계수", "🌲"], ["모든 것의 탑", "🗼"], ["궁극의 건축물", "🏆"]],
+  },
+];
+
+/** 보기 좋게 앞 두 자리만 남긴다(예: 1234567 → 1200000) */
+function roundNice(n: number): number {
+  const p = Math.pow(10, Math.floor(Math.log10(n)) - 1);
+  return Math.round(n / p) * p;
+}
+
+const EXTRA_LEVELS: BuildingLevel[] = EXTRA_CHAPTERS.flatMap((chapter, c) =>
+  chapter.levels.map(([name, emoji], i) => ({
+    name: `${chapter.title} · ${name}`,
+    emoji,
+    blocksNeeded: roundNice(BASE_LEVELS[BASE_LEVELS.length - 1].blocksNeeded * Math.pow(EXTRA_LEVEL_GROWTH, c * 10 + i + 1)),
+    color: chapter.color,
+  })),
+);
+
+const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS];
 
 interface CountryUpgrade {
   id: string;
@@ -464,7 +539,12 @@ export default function BuildingPage() {
             <div className="flex items-center gap-2">
               <span className="text-3xl">{currentLevel.emoji}</span>
               <div>
-                <p className="font-bold text-zinc-900 dark:text-white">{currentLevel.name}</p>
+                <p className="font-bold text-zinc-900 dark:text-white">
+                  {currentLevel.name}{" "}
+                  <span className="text-xs font-semibold text-zinc-400">
+                    {BUILDING_LEVELS.indexOf(currentLevel) + 1}단계 / {BUILDING_LEVELS.length}
+                  </span>
+                </p>
                 <p className="text-xs text-zinc-400">총 {formatNumber(totalBlocks)}블록 건축</p>
               </div>
             </div>
