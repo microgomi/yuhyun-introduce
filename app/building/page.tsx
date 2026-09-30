@@ -125,7 +125,82 @@ const COUNTRIES: CountryUpgrade[] = [
   { id: "france", name: "프랑스", flag: "🇫🇷", desc: "에펠탑! 클릭 +500, 자동 +300", cost: 200000, clickBonus: 500, autoBonus: 300, landmark: "🗼" },
   { id: "uae", name: "UAE", flag: "🇦🇪", desc: "부르즈칼리파! 클릭 +1000, 자동 +700", cost: 500000, clickBonus: 1000, autoBonus: 700, landmark: "🏙️" },
   { id: "space", name: "우주", flag: "🌌", desc: "우주 정거장! 클릭 +3000, 자동 +2000", cost: 2000000, clickBonus: 3000, autoBonus: 2000, landmark: "🛸" },
+  // 우주 다음 10개국. 뒤로 갈수록 가격이 약 4배, 보너스도 그만큼 커진다.
+  { id: "uk", name: "영국", flag: "🇬🇧", desc: "빅벤! 클릭 +8K, 자동 +10K", cost: 5e6, clickBonus: 8e3, autoBonus: 1e4, landmark: "🕰️" },
+  { id: "germany", name: "독일", flag: "🇩🇪", desc: "노이슈반슈타인 성! 클릭 +30K, 자동 +40K", cost: 2e7, clickBonus: 3e4, autoBonus: 4e4, landmark: "🏰" },
+  { id: "italy", name: "이탈리아", flag: "🇮🇹", desc: "콜로세움! 클릭 +120K, 자동 +160K", cost: 8e7, clickBonus: 1.2e5, autoBonus: 1.6e5, landmark: "🏟️" },
+  { id: "greece", name: "그리스", flag: "🇬🇷", desc: "파르테논 신전! 클릭 +450K, 자동 +600K", cost: 3e8, clickBonus: 4.5e5, autoBonus: 6e5, landmark: "🏛️" },
+  { id: "india", name: "인도", flag: "🇮🇳", desc: "타지마할! 클릭 +1.5M, 자동 +2M", cost: 1e9, clickBonus: 1.5e6, autoBonus: 2e6, landmark: "🕌" },
+  { id: "russia", name: "러시아", flag: "🇷🇺", desc: "성 바실리 성당! 클릭 +7.5M, 자동 +10M", cost: 5e9, clickBonus: 7.5e6, autoBonus: 1e7, landmark: "⛪" },
+  { id: "brazil", name: "브라질", flag: "🇧🇷", desc: "거대 예수상! 클릭 +30M, 자동 +40M", cost: 2e10, clickBonus: 3e7, autoBonus: 4e7, landmark: "⛰️" },
+  { id: "canada", name: "캐나다", flag: "🇨🇦", desc: "CN 타워! 클릭 +150M, 자동 +200M", cost: 1e11, clickBonus: 1.5e8, autoBonus: 2e8, landmark: "🗼" },
+  { id: "australia", name: "호주", flag: "🇦🇺", desc: "오페라 하우스! 클릭 +750M, 자동 +1B", cost: 5e11, clickBonus: 7.5e8, autoBonus: 1e9, landmark: "🎭" },
+  { id: "mexico", name: "멕시코", flag: "🇲🇽", desc: "치첸이트사 피라미드! 클릭 +3B, 자동 +4B", cost: 2e12, clickBonus: 3e9, autoBonus: 4e9, landmark: "🛕" },
 ];
+
+// --- 자동 클릭 ---
+/** 단계별 초당 자동 클릭 횟수와 그 단계로 올리는 비용(블록). index 0 은 "없음". */
+const AUTO_CLICK_LEVELS: { cps: number; cost: number }[] = [
+  { cps: 0, cost: 0 },
+  { cps: 1, cost: 500 },
+  { cps: 2, cost: 5e3 },
+  { cps: 4, cost: 5e4 },
+  { cps: 6, cost: 5e5 },
+  { cps: 10, cost: 5e6 },
+  { cps: 15, cost: 5e7 },
+  { cps: 20, cost: 5e8 },
+  { cps: 30, cost: 5e9 },
+  { cps: 40, cost: 5e10 },
+  { cps: 50, cost: 5e11 },
+];
+const AUTO_CLICK_TICK_MS = 250;
+
+// --- 같이 건축하는 펫 ---
+type PetPower = "auto" | "clickPct" | "autoClick" | "allPct";
+
+interface Pet {
+  id: string;
+  name: string;
+  emoji: string;
+  /** 무엇을 하는 펫인지 한 줄 소개 */
+  job: string;
+  power: PetPower;
+  /** 레벨 1 마다 늘어나는 양. auto 는 초당 블록, clickPct·allPct 는 %, autoClick 은 초당 횟수 */
+  perLevel: number;
+  baseCost: number;
+}
+
+const PET_MAX_LEVEL = 10;
+const PET_COST_MULTIPLIER = 3;
+
+const PETS: Pet[] = [
+  { id: "dog", name: "멍멍이", emoji: "🐶", job: "벽돌을 물어 와요", power: "auto", perLevel: 100, baseCost: 1e3 },
+  { id: "cat", name: "야옹이", emoji: "🐱", job: "망치질을 도와줘요", power: "clickPct", perLevel: 10, baseCost: 1e4 },
+  { id: "rabbit", name: "깡총이", emoji: "🐰", job: "대신 폴짝폴짝 클릭해요", power: "autoClick", perLevel: 1, baseCost: 5e4 },
+  { id: "bear", name: "곰돌이", emoji: "🐻", job: "무거운 기둥을 번쩍!", power: "auto", perLevel: 2e4, baseCost: 1e6 },
+  { id: "beaver", name: "비버", emoji: "🦫", job: "타고난 댐 건축가", power: "auto", perLevel: 2e6, baseCost: 1e8 },
+  { id: "owl", name: "부엉이", emoji: "🦉", job: "똑똑한 설계도를 그려요", power: "allPct", perLevel: 5, baseCost: 1e9 },
+  { id: "dragon", name: "드래곤", emoji: "🐉", job: "불로 블록을 구워요", power: "auto", perLevel: 5e8, baseCost: 1e11 },
+  { id: "unicorn", name: "유니콘", emoji: "🦄", job: "무지개 마법으로 모든 게 빨라져요", power: "allPct", perLevel: 20, baseCost: 1e13 },
+];
+
+function petCost(pet: Pet, level: number): number {
+  return Math.floor(pet.baseCost * Math.pow(PET_COST_MULTIPLIER, level));
+}
+
+function petEffectText(pet: Pet, level: number): string {
+  const v = pet.perLevel * Math.max(1, level);
+  switch (pet.power) {
+    case "auto":
+      return `초당 +${formatNumber(v)} 블록`;
+    case "clickPct":
+      return `클릭 +${v}%`;
+    case "autoClick":
+      return `자동 클릭 +${v}회/초`;
+    case "allPct":
+      return `모든 생산 +${v}%`;
+  }
+}
 
 function formatNumber(n: number): string {
   // 초월·영원·절대 등급으로 블록이 경(1e16) 단위를 넘는다. 큰 단위부터 검사해야 한다.
@@ -145,6 +220,10 @@ interface BuildSave {
   blocks: number; totalBlocks: number; clickPower: number; autoPerSec: number;
   upgradeLevels: Record<string, number>; ownedCountries: Record<string, boolean>;
   timestamp: number;
+  // 아래는 나중에 추가된 값이라 옛 저장에는 없다.
+  autoClickLevel?: number; autoClickOn?: boolean; petLevels?: Record<string, number>;
+  /** 저장 시점의 실제 초당 생산량(펫·보너스 포함). 오프라인 보상에 쓴다. */
+  effectiveAuto?: number;
 }
 
 interface BuildOfflineReward { minutes: number; blocksGained: number; }
@@ -161,7 +240,33 @@ export default function BuildingPage() {
   const [showCountries, setShowCountries] = useState(false);
   const [offlineReward, setOfflineReward] = useState<BuildOfflineReward | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [autoClickLevel, setAutoClickLevel] = useState(0);
+  const [autoClickOn, setAutoClickOn] = useState(true);
+  const [petLevels, setPetLevels] = useState<Record<string, number>>({});
+  /** 자동 클릭 손가락의 위치(%). 누를 때마다 옮겨 간다. */
+  const [tapAt, setTapAt] = useState<{ x: number; y: number; n: number } | null>(null);
   const nextEffectId = useRef(0);
+  const clickAreaRef = useRef<HTMLButtonElement>(null);
+  const autoClickAccRef = useRef(0);
+
+  // --- 펫·자동 클릭을 반영한 실제 생산량 ---
+  let petAuto = 0;
+  let petClickPct = 0;
+  let petAllPct = 0;
+  let petCps = 0;
+  for (const pet of PETS) {
+    const lv = petLevels[pet.id] || 0;
+    if (lv === 0) continue;
+    const v = pet.perLevel * lv;
+    if (pet.power === "auto") petAuto += v;
+    else if (pet.power === "clickPct") petClickPct += v;
+    else if (pet.power === "allPct") petAllPct += v;
+    else petCps += v;
+  }
+  const allMult = 1 + petAllPct / 100;
+  const effectiveClick = Math.floor(clickPower * (1 + petClickPct / 100) * allMult);
+  const effectiveAuto = Math.floor((autoPerSec + petAuto) * allMult);
+  const autoCps = AUTO_CLICK_LEVELS[autoClickLevel].cps + petCps;
 
   // --- Load save on mount ---
   useEffect(() => {
@@ -172,9 +277,13 @@ export default function BuildingPage() {
       setBlocks(s.blocks); setTotalBlocks(s.totalBlocks);
       setClickPower(s.clickPower); setAutoPerSec(s.autoPerSec);
       setUpgradeLevels(s.upgradeLevels); setOwnedCountries(s.ownedCountries);
+      setAutoClickLevel(Math.min(AUTO_CLICK_LEVELS.length - 1, Math.max(0, Math.floor(s.autoClickLevel ?? 0))));
+      setAutoClickOn(s.autoClickOn ?? true);
+      setPetLevels(s.petLevels ?? {});
+      const offlinePerSec = s.effectiveAuto ?? s.autoPerSec;
       const diffMin = Math.min(Math.floor((Date.now() - s.timestamp) / 60000), BUILD_MAX_OFFLINE_MIN);
-      if (diffMin >= 1 && s.autoPerSec > 0) {
-        const gained = s.autoPerSec * diffMin * 60;
+      if (diffMin >= 1 && offlinePerSec > 0) {
+        const gained = offlinePerSec * diffMin * 60;
         setBlocks((p) => p + gained);
         setTotalBlocks((p) => p + gained);
         setOfflineReward({ minutes: diffMin, blocksGained: gained });
@@ -188,14 +297,17 @@ export default function BuildingPage() {
   useEffect(() => {
     if (!loaded) return;
     const save = () => {
-      const data: BuildSave = { blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, timestamp: Date.now() };
+      const data: BuildSave = {
+        blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, timestamp: Date.now(),
+        autoClickLevel, autoClickOn, petLevels, effectiveAuto,
+      };
       localStorage.setItem(BUILD_SAVE_KEY, JSON.stringify(data));
     };
     save();
     const interval = setInterval(save, 5000);
     window.addEventListener("beforeunload", save);
     return () => { clearInterval(interval); window.removeEventListener("beforeunload", save); };
-  }, [loaded, blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries]);
+  }, [loaded, blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, autoClickLevel, autoClickOn, petLevels, effectiveAuto]);
 
   // Current building level
   const currentLevel = [...BUILDING_LEVELS].reverse().find((l) => totalBlocks >= l.blocksNeeded) || BUILDING_LEVELS[0];
@@ -204,15 +316,41 @@ export default function BuildingPage() {
     ? ((totalBlocks - currentLevel.blocksNeeded) / (nextLevel.blocksNeeded - currentLevel.blocksNeeded)) * 100
     : 100;
 
-  // Auto clicker
+  // 초당 자동 건축(업그레이드 + 펫)
   useEffect(() => {
-    if (autoPerSec <= 0) return;
+    if (effectiveAuto <= 0) return;
     const interval = setInterval(() => {
-      setBlocks((prev) => prev + autoPerSec);
-      setTotalBlocks((prev) => prev + autoPerSec);
+      setBlocks((prev) => prev + effectiveAuto);
+      setTotalBlocks((prev) => prev + effectiveAuto);
     }, 1000);
     return () => clearInterval(interval);
-  }, [autoPerSec]);
+  }, [effectiveAuto]);
+
+  // 자동 클릭: 켜져 있으면 초당 autoCps 번 대신 눌러 준다. 짧게 끊어 더해야 부드럽게 오른다.
+  useEffect(() => {
+    if (!autoClickOn || autoCps <= 0) return;
+    const interval = setInterval(() => {
+      autoClickAccRef.current += (autoCps * AUTO_CLICK_TICK_MS) / 1000;
+      const clicks = Math.floor(autoClickAccRef.current);
+      if (clicks <= 0) return;
+      autoClickAccRef.current -= clicks;
+      const gained = clicks * effectiveClick;
+      setBlocks((prev) => prev + gained);
+      setTotalBlocks((prev) => prev + gained);
+      // 손가락이 건물 근처를 톡 누르고, 그 자리에 +숫자가 떠오른다
+      const x = 25 + Math.random() * 50;
+      const y = 35 + Math.random() * 40;
+      setTapAt((prev) => ({ x, y, n: (prev?.n ?? 0) + 1 }));
+      const area = clickAreaRef.current;
+      if (area) {
+        setClickEffects((prev) => [
+          ...prev.slice(-12),
+          { id: nextEffectId.current++, x: (area.clientWidth * x) / 100, y: (area.clientHeight * y) / 100, value: gained },
+        ]);
+      }
+    }, AUTO_CLICK_TICK_MS);
+    return () => clearInterval(interval);
+  }, [autoClickOn, autoCps, effectiveClick]);
 
   // Clean up click effects
   useEffect(() => {
@@ -228,11 +366,11 @@ export default function BuildingPage() {
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      setBlocks((prev) => prev + clickPower);
-      setTotalBlocks((prev) => prev + clickPower);
-      setClickEffects((prev) => [...prev, { id: nextEffectId.current++, x, y, value: clickPower }]);
+      setBlocks((prev) => prev + effectiveClick);
+      setTotalBlocks((prev) => prev + effectiveClick);
+      setClickEffects((prev) => [...prev, { id: nextEffectId.current++, x, y, value: effectiveClick }]);
     },
-    [clickPower]
+    [effectiveClick]
   );
 
   const getUpgradeCost = (upgrade: Upgrade): number => {
@@ -260,6 +398,24 @@ export default function BuildingPage() {
     setAutoPerSec((prev) => prev + country.autoBonus);
   };
 
+  const buyAutoClick = () => {
+    const next = AUTO_CLICK_LEVELS[autoClickLevel + 1];
+    if (!next || blocks < next.cost) return;
+    setBlocks((prev) => prev - next.cost);
+    setAutoClickLevel((lv) => lv + 1);
+    setAutoClickOn(true);
+  };
+
+  const buyPet = (pet: Pet) => {
+    const lv = petLevels[pet.id] || 0;
+    if (lv >= PET_MAX_LEVEL) return;
+    const cost = petCost(pet, lv);
+    if (blocks < cost) return;
+    setBlocks((prev) => prev - cost);
+    setPetLevels((prev) => ({ ...prev, [pet.id]: lv + 1 }));
+  };
+
+  const ownedPets = PETS.filter((p) => (petLevels[p.id] || 0) > 0);
   const ownedCount = Object.values(ownedCountries).filter(Boolean).length;
 
   // Visual blocks for the building area
@@ -293,11 +449,12 @@ export default function BuildingPage() {
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500">클릭당</p>
-            <p className="text-2xl font-black text-zinc-900 dark:text-white">🔨 {formatNumber(clickPower)}</p>
+            <p className="text-2xl font-black text-zinc-900 dark:text-white">🔨 {formatNumber(effectiveClick)}</p>
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500">초당 자동</p>
-            <p className="text-2xl font-black text-zinc-900 dark:text-white">⚡ {formatNumber(autoPerSec)}</p>
+            <p className="text-2xl font-black text-zinc-900 dark:text-white">⚡ {formatNumber(effectiveAuto)}</p>
+            {autoClickOn && autoCps > 0 && <p className="text-xs font-bold text-blue-500">🖱️ 자동 클릭 {autoCps}회/초</p>}
           </div>
         </div>
 
@@ -331,6 +488,7 @@ export default function BuildingPage() {
           {/* Click Area */}
           <div className="lg:col-span-2">
             <button
+              ref={clickAreaRef}
               onClick={handleClick}
               className="relative w-full overflow-hidden rounded-3xl border-4 border-dashed border-zinc-300 bg-gradient-to-b from-sky-100 to-green-100 transition-all hover:border-blue-400 hover:shadow-lg active:scale-[0.98] dark:border-zinc-700 dark:from-zinc-800 dark:to-zinc-900 dark:hover:border-blue-500"
               style={{ minHeight: 320 }}
@@ -369,6 +527,37 @@ export default function BuildingPage() {
                 </div>
               </div>
 
+              {/* 같이 건축하는 펫: 땅 위를 오가며 블록을 나른다 */}
+              {ownedPets.map((pet, i) => (
+                <div
+                  key={pet.id}
+                  className="pointer-events-none absolute bottom-3 flex flex-col items-center"
+                  style={{
+                    left: `${8 + ((i * 11) % 80)}%`,
+                    animation: `petWalk ${5 + (i % 3) * 1.5}s ease-in-out ${i * 0.4}s infinite alternate`,
+                  }}
+                >
+                  <span className="text-sm" style={{ animation: `petCarry 0.6s ease-in-out ${i * 0.1}s infinite` }}>
+                    🧱
+                  </span>
+                  <span className="text-3xl drop-shadow">{pet.emoji}</span>
+                  <span className="rounded-full bg-white/80 px-1.5 text-[10px] font-bold text-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200">
+                    Lv.{petLevels[pet.id]}
+                  </span>
+                </div>
+              ))}
+
+              {/* 자동 클릭 손가락 */}
+              {autoClickOn && autoCps > 0 && tapAt && (
+                <span
+                  key={tapAt.n}
+                  className="pointer-events-none absolute text-3xl"
+                  style={{ left: `${tapAt.x}%`, top: `${tapAt.y}%`, animation: "autoTap 0.25s ease-out" }}
+                >
+                  👆
+                </span>
+              )}
+
               {/* Click effects */}
               {clickEffects.map((effect) => (
                 <span
@@ -389,6 +578,89 @@ export default function BuildingPage() {
                 클릭해서 건축하세요!
               </p>
             </button>
+
+            {/* 자동 클릭 */}
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-white p-4 shadow-sm dark:border-blue-900 dark:bg-zinc-900">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">🖱️</span>
+                  <div>
+                    <p className="font-bold text-zinc-900 dark:text-white">
+                      자동 클릭 {autoClickLevel > 0 && <span className="text-xs text-blue-500">Lv.{autoClickLevel}</span>}
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {autoCps > 0
+                        ? `초당 ${autoCps}번 대신 눌러요 → 초당 +${formatNumber(autoCps * effectiveClick)} 블록`
+                        : "사면 손가락이 알아서 클릭해 줘요!"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {autoCps > 0 && (
+                    <button
+                      onClick={() => setAutoClickOn((on) => !on)}
+                      className={`rounded-xl px-4 py-2 text-sm font-black ${
+                        autoClickOn ? "bg-blue-500 text-white" : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {autoClickOn ? "ON" : "OFF"}
+                    </button>
+                  )}
+                  {autoClickLevel < AUTO_CLICK_LEVELS.length - 1 ? (
+                    <button
+                      onClick={buyAutoClick}
+                      disabled={blocks < AUTO_CLICK_LEVELS[autoClickLevel + 1].cost}
+                      className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-black text-zinc-900 disabled:opacity-40"
+                    >
+                      {autoClickLevel === 0 ? "사기" : "강화"} → {AUTO_CLICK_LEVELS[autoClickLevel + 1].cps}회/초 · 🧱{" "}
+                      {formatNumber(AUTO_CLICK_LEVELS[autoClickLevel + 1].cost)}
+                    </button>
+                  ) : (
+                    <span className="rounded-xl bg-blue-100 px-4 py-2 text-sm font-black text-blue-600 dark:bg-blue-950 dark:text-blue-300">최대 단계!</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 같이 건축하는 펫 */}
+            <div className="mt-4 rounded-2xl border border-pink-200 bg-white p-4 shadow-sm dark:border-pink-900 dark:bg-zinc-900">
+              <p className="mb-3 font-bold text-zinc-900 dark:text-white">
+                🐾 같이 건축하는 펫{" "}
+                <span className="text-xs font-normal text-zinc-500">
+                  ({ownedPets.length}/{PETS.length}마리 · 펫마다 최대 Lv.{PET_MAX_LEVEL})
+                </span>
+              </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {PETS.map((pet) => {
+                  const lv = petLevels[pet.id] || 0;
+                  const maxed = lv >= PET_MAX_LEVEL;
+                  const cost = petCost(pet, lv);
+                  const canBuy = !maxed && blocks >= cost;
+                  return (
+                    <button
+                      key={pet.id}
+                      onClick={() => buyPet(pet)}
+                      disabled={!canBuy}
+                      className={`rounded-2xl border p-3 text-center transition-all ${
+                        lv > 0 ? "border-pink-300 bg-pink-50 dark:border-pink-800 dark:bg-pink-950/40" : "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900"
+                      } ${canBuy ? "hover:shadow-md active:scale-[0.97]" : maxed ? "" : "opacity-50"}`}
+                    >
+                      <div className={`text-4xl ${lv === 0 ? "grayscale" : ""}`}>{pet.emoji}</div>
+                      <p className="mt-1 text-sm font-black text-zinc-900 dark:text-white">
+                        {pet.name} {lv > 0 && <span className="text-xs text-pink-500">Lv.{lv}</span>}
+                      </p>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{pet.job}</p>
+                      <p className="mt-1 text-xs font-bold text-pink-600 dark:text-pink-400">
+                        {lv > 0 ? petEffectText(pet, lv) : `${petEffectText(pet, 1)} (Lv.1)`}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-amber-600 dark:text-amber-400">
+                        {maxed ? "최대 레벨 ⭐" : `${lv === 0 ? "입양" : "레벨업"} 🧱 ${formatNumber(cost)}`}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* Upgrades */}
@@ -702,6 +974,20 @@ export default function BuildingPage() {
 
       {/* Float-up animation */}
       <style jsx global>{`
+        @keyframes petWalk {
+          0% { transform: translateX(-30px) scaleX(1); }
+          49% { transform: translateX(30px) scaleX(1); }
+          50% { transform: translateX(30px) scaleX(-1); }
+          100% { transform: translateX(-30px) scaleX(-1); }
+        }
+        @keyframes petCarry {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+        }
+        @keyframes autoTap {
+          0% { transform: translate(-50%, -80%) scale(1.3); opacity: 0.6; }
+          100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
         @keyframes floatUp {
           0% {
             opacity: 1;
