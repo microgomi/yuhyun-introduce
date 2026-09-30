@@ -4,10 +4,15 @@ import Link from "next/link";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // --- Clicker Game Types ---
-type UpgradeTier = "normal" | "advanced" | "legendary" | "mythic" | "transcendent" | "eternal" | "absolute";
+type UpgradeTier =
+  | "normal" | "advanced" | "legendary" | "mythic" | "transcendent" | "eternal" | "absolute"
+  | "divine" | "primordial" | "infinite" | "absolutist" | "mystery";
 
 /** 상점에 보여 줄 등급 순서(낮은 등급부터) */
-const TIER_ORDER: UpgradeTier[] = ["normal", "advanced", "legendary", "mythic", "transcendent", "eternal", "absolute"];
+const TIER_ORDER: UpgradeTier[] = [
+  "normal", "advanced", "legendary", "mythic", "transcendent", "eternal", "absolute",
+  "divine", "primordial", "infinite", "absolutist", "mystery",
+];
 
 interface Upgrade {
   id: string;
@@ -29,6 +34,11 @@ const TIER_INFO: Record<UpgradeTier, { label: string; emoji: string; border: str
   transcendent: { label: "초월", emoji: "🔷", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-cyan-400 dark:border-cyan-500", activeBg: "bg-gradient-to-r from-cyan-50 to-sky-100 dark:from-cyan-950/50 dark:to-sky-950/50", text: "text-cyan-500" },
   eternal: { label: "영원", emoji: "💖", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-pink-400 dark:border-pink-500", activeBg: "bg-gradient-to-r from-pink-50 via-fuchsia-50 to-rose-100 dark:from-pink-950/50 dark:via-fuchsia-950/50 dark:to-rose-950/50", text: "text-pink-500" },
   absolute: { label: "절대", emoji: "👑", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-yellow-400 dark:border-yellow-400", activeBg: "bg-gradient-to-r from-red-50 via-yellow-50 to-violet-100 dark:from-red-950/50 dark:via-yellow-950/40 dark:to-violet-950/50", text: "bg-gradient-to-r from-red-500 via-yellow-500 to-violet-500 bg-clip-text text-transparent" },
+  divine: { label: "신성", emoji: "😇", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-yellow-300 dark:border-yellow-300", activeBg: "bg-gradient-to-r from-white to-yellow-100 dark:from-yellow-950/40 dark:to-amber-900/40", text: "text-yellow-500" },
+  primordial: { label: "태초", emoji: "🌅", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-orange-400 dark:border-orange-500", activeBg: "bg-gradient-to-r from-orange-100 via-rose-100 to-sky-100 dark:from-orange-950/50 dark:via-rose-950/50 dark:to-sky-950/50", text: "text-orange-500" },
+  infinite: { label: "무한", emoji: "♾️", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-teal-400 dark:border-teal-400", activeBg: "bg-gradient-to-r from-teal-100 via-cyan-100 to-indigo-100 dark:from-teal-950/50 dark:via-cyan-950/50 dark:to-indigo-950/50", text: "text-teal-500" },
+  absolutist: { label: "절대적인", emoji: "⚜️", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-zinc-900 dark:border-white", activeBg: "bg-gradient-to-r from-zinc-200 via-white to-zinc-300 dark:from-zinc-800 dark:via-zinc-700 dark:to-zinc-900", text: "text-zinc-900 dark:text-white" },
+  mystery: { label: "???", emoji: "❓", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-fuchsia-500 dark:border-fuchsia-400", activeBg: "bg-gradient-to-r from-fuchsia-100 via-violet-100 to-cyan-100 dark:from-black dark:via-fuchsia-950 dark:to-black", text: "animate-pulse bg-gradient-to-r from-fuchsia-500 via-cyan-400 to-lime-400 bg-clip-text text-transparent" },
 };
 
 interface BuildingLevel {
@@ -74,6 +84,31 @@ const UPGRADES: Upgrade[] = [
   { id: "rainbowgate", name: "무지개 차원로", emoji: "🌈", desc: "초당 +100B 자동 블록", baseCost: 100_000_000_000_000, costMultiplier: 2.4, effect: "autoClick", effectValue: 100_000_000_000, tier: "absolute" },
   { id: "absolutecrown", name: "절대자의 왕관", emoji: "👑", desc: "클릭당 +300B 블록", baseCost: 1_000_000_000_000_000, costMultiplier: 2.3, effect: "clickPower", effectValue: 300_000_000_000, tier: "absolute" },
   { id: "absolutebuild", name: "절대 건축", emoji: "🔱", desc: "초당 +1T 자동 블록", baseCost: 5_000_000_000_000_000, costMultiplier: 2.5, effect: "autoClick", effectValue: 1_000_000_000_000, tier: "absolute" },
+  // 신성 — 여기부터 등급마다 약 10배씩 세진다
+  { id: "halo", name: "천사의 후광", emoji: "😇", desc: "클릭당 +2T 블록", baseCost: 2e16, costMultiplier: 2.3, effect: "clickPower", effectValue: 2e12, tier: "divine" },
+  { id: "holyforge", name: "신성한 대장간", emoji: "🔥", desc: "초당 +5T 자동 블록", baseCost: 5e16, costMultiplier: 2.5, effect: "autoClick", effectValue: 5e12, tier: "divine" },
+  { id: "archangel", name: "대천사의 날개", emoji: "🪽", desc: "클릭당 +10T 블록", baseCost: 2e17, costMultiplier: 2.4, effect: "clickPower", effectValue: 1e13, tier: "divine" },
+  { id: "heavenworks", name: "천국 공방", emoji: "⛪", desc: "초당 +25T 자동 블록", baseCost: 5e17, costMultiplier: 2.6, effect: "autoClick", effectValue: 2.5e13, tier: "divine" },
+  // 태초
+  { id: "firstlight", name: "태초의 빛", emoji: "🌅", desc: "클릭당 +50T 블록", baseCost: 1e18, costMultiplier: 2.4, effect: "clickPower", effectValue: 5e13, tier: "primordial" },
+  { id: "worldseed", name: "세계의 씨앗", emoji: "🌱", desc: "초당 +100T 자동 블록", baseCost: 3e18, costMultiplier: 2.6, effect: "autoClick", effectValue: 1e14, tier: "primordial" },
+  { id: "chaoshammer", name: "혼돈의 망치", emoji: "🌪️", desc: "클릭당 +300T 블록", baseCost: 1e19, costMultiplier: 2.5, effect: "clickPower", effectValue: 3e14, tier: "primordial" },
+  { id: "genesis", name: "창세 엔진", emoji: "🌋", desc: "초당 +500T 자동 블록", baseCost: 3e19, costMultiplier: 2.7, effect: "autoClick", effectValue: 5e14, tier: "primordial" },
+  // 무한
+  { id: "endlesshand", name: "끝없는 손", emoji: "🤲", desc: "클릭당 +1Qa 블록", baseCost: 1e20, costMultiplier: 2.5, effect: "clickPower", effectValue: 1e15, tier: "infinite" },
+  { id: "loopfactory", name: "무한 루프 공장", emoji: "🔁", desc: "초당 +2Qa 자동 블록", baseCost: 3e20, costMultiplier: 2.7, effect: "autoClick", effectValue: 2e15, tier: "infinite" },
+  { id: "mobius", name: "뫼비우스 크레인", emoji: "➰", desc: "클릭당 +5Qa 블록", baseCost: 1e21, costMultiplier: 2.6, effect: "clickPower", effectValue: 5e15, tier: "infinite" },
+  { id: "infinitycore", name: "무한 코어", emoji: "♾️", desc: "초당 +10Qa 자동 블록", baseCost: 3e21, costMultiplier: 2.8, effect: "autoClick", effectValue: 1e16, tier: "infinite" },
+  // 절대적인
+  { id: "absolutelaw", name: "절대적인 법칙", emoji: "⚖️", desc: "클릭당 +30Qa 블록", baseCost: 1e22, costMultiplier: 2.6, effect: "clickPower", effectValue: 3e16, tier: "absolutist" },
+  { id: "absolutethrone", name: "절대적인 옥좌", emoji: "⚜️", desc: "초당 +50Qa 자동 블록", baseCost: 3e22, costMultiplier: 2.8, effect: "autoClick", effectValue: 5e16, tier: "absolutist" },
+  { id: "absolutewill", name: "절대적인 의지", emoji: "🗡️", desc: "클릭당 +100Qa 블록", baseCost: 1e23, costMultiplier: 2.7, effect: "clickPower", effectValue: 1e17, tier: "absolutist" },
+  { id: "absoluteworld", name: "절대적인 세계", emoji: "🌍", desc: "초당 +300Qa 자동 블록", baseCost: 3e23, costMultiplier: 2.9, effect: "autoClick", effectValue: 3e17, tier: "absolutist" },
+  // ??? — 살 수 있을 만큼 모으기 전까지는 정체가 숨겨진다
+  { id: "mystery1", name: "알 수 없는 조각", emoji: "🧩", desc: "클릭당 +1Qi 블록", baseCost: 1e24, costMultiplier: 2.8, effect: "clickPower", effectValue: 1e18, tier: "mystery" },
+  { id: "mystery2", name: "이름 없는 별", emoji: "🌠", desc: "초당 +2Qi 자동 블록", baseCost: 3e24, costMultiplier: 3.0, effect: "autoClick", effectValue: 2e18, tier: "mystery" },
+  { id: "mystery3", name: "비밀의 열쇠", emoji: "🗝️", desc: "클릭당 +5Qi 블록", baseCost: 1e25, costMultiplier: 2.9, effect: "clickPower", effectValue: 5e18, tier: "mystery" },
+  { id: "mystery4", name: "모든 것의 답", emoji: "👁️‍🗨️", desc: "초당 +10Qi 자동 블록", baseCost: 3e25, costMultiplier: 3.0, effect: "autoClick", effectValue: 1e19, tier: "mystery" },
 ];
 
 const BASE_LEVELS: BuildingLevel[] = [
@@ -278,7 +313,11 @@ function petEffectText(pet: Pet, level: number): string {
 }
 
 function formatNumber(n: number): string {
-  // 초월·영원·절대 등급으로 블록이 경(1e16) 단위를 넘는다. 큰 단위부터 검사해야 한다.
+  // 초월 이후 등급으로 블록이 Sx(1e21)~Oc(1e27)까지 커진다. 큰 단위부터 검사해야 한다.
+  if (n >= 1e30) return n.toExponential(1).replace("e+", "e");
+  if (n >= 1e27) return (n / 1e27).toFixed(1) + "Oc";
+  if (n >= 1e24) return (n / 1e24).toFixed(1) + "Sp";
+  if (n >= 1e21) return (n / 1e21).toFixed(1) + "Sx";
   if (n >= 1e18) return (n / 1e18).toFixed(1) + "Qi";
   if (n >= 1e15) return (n / 1e15).toFixed(1) + "Qa";
   if (n >= 1e12) return (n / 1e12).toFixed(1) + "T";
@@ -760,6 +799,8 @@ export default function BuildingPage() {
                     const cost = getUpgradeCost(upgrade);
                     const level = upgradeLevels[upgrade.id] || 0;
                     const canBuy = blocks >= cost;
+                    // ??? 등급은 살 수 있을 만큼 모으거나 이미 가진 것만 정체를 보여 준다
+                    const hidden = tier === "mystery" && level === 0 && !canBuy;
                     return (
                       <button
                         key={upgrade.id}
@@ -772,18 +813,18 @@ export default function BuildingPage() {
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">{upgrade.emoji}</span>
+                          <span className="text-2xl">{hidden ? "❓" : upgrade.emoji}</span>
                           <div className="flex-1">
                             <div className="flex items-center justify-between">
                               <p className="text-sm font-bold text-zinc-900 dark:text-white">
-                                {upgrade.name}
+                                {hidden ? "???" : upgrade.name}
                                 {level > 0 && (
                                   <span className={`ml-1 text-xs ${info.text}`}>Lv.{level}</span>
                                 )}
                               </p>
                               <p className="text-xs font-bold text-amber-600 dark:text-amber-400">🧱 {formatNumber(cost)}</p>
                             </div>
-                            <p className="text-xs text-zinc-500 dark:text-zinc-400">{upgrade.desc}</p>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400">{hidden ? "정체불명의 힘… 블록을 모으면 드러나요" : upgrade.desc}</p>
                           </div>
                         </div>
                       </button>
