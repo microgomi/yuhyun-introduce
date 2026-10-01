@@ -613,6 +613,75 @@ function formatNumber(n: number): string {
   return String(Math.floor(n));
 }
 
+// --- 한꺼번에 사기 ---
+type BuyAmount = 1 | 10 | 100 | "max";
+const BUY_AMOUNTS: BuyAmount[] = [1, 10, 100, "max"];
+
+/** level 에서 n 레벨을 더 살 때의 총 비용(등비수열의 합) */
+function bulkCost(upgrade: { baseCost: number; costMultiplier: number }, level: number, n: number): number {
+  const m = upgrade.costMultiplier;
+  return (upgrade.baseCost * Math.pow(m, level) * (Math.pow(m, n) - 1)) / (m - 1);
+}
+
+/** 가진 블록으로 살 수 있는 최대 레벨 수 */
+function maxAffordable(upgrade: { baseCost: number; costMultiplier: number }, level: number, blocks: number): number {
+  const m = upgrade.costMultiplier;
+  const first = upgrade.baseCost * Math.pow(m, level);
+  if (blocks < first) return 0;
+  let n = Math.floor(Math.log((blocks * (m - 1)) / first + 1) / Math.log(m));
+  // 소수점 오차로 하나 넘칠 수 있어서 실제 비용으로 한 번 더 확인한다
+  while (n > 0 && bulkCost(upgrade, level, n) > blocks) n--;
+  return Math.max(1, n);
+}
+
+// --- 황금 블록 ---
+/** 황금 블록이 나타나는 간격(ms): 이 사이에서 무작위 */
+const GOLDEN_MIN_MS = 60_000;
+const GOLDEN_MAX_MS = 120_000;
+/** 나타난 뒤 이 시간 안에 누르지 않으면 사라진다 */
+const GOLDEN_LIFETIME_MS = 12_000;
+const FRENZY_MS = 30_000;
+const FRENZY_MULT = 7;
+
+// --- 업적 ---
+interface AchievementState {
+  totalBlocks: number;
+  level: number;
+  totalClicks: number;
+  petsOwned: number;
+  countriesOwned: number;
+  autoClickLevel: number;
+  goldenClicks: number;
+}
+
+/** 업적 하나마다 모든 생산 +10% */
+const ACHIEVEMENT_BONUS = 0.1;
+
+const ACHIEVEMENTS: { id: string; emoji: string; name: string; desc: string; done: (a: AchievementState) => boolean }[] = [
+  { id: "b100", emoji: "🧱", name: "첫 삽", desc: "블록 100개 건축", done: (a) => a.totalBlocks >= 100 },
+  { id: "b1m", emoji: "🏠", name: "백만 장자", desc: "블록 1M 건축", done: (a) => a.totalBlocks >= 1e6 },
+  { id: "b1b", emoji: "🏢", name: "십억 건축가", desc: "블록 1B 건축", done: (a) => a.totalBlocks >= 1e9 },
+  { id: "b1t", emoji: "🏙️", name: "조 단위", desc: "블록 1T 건축", done: (a) => a.totalBlocks >= 1e12 },
+  { id: "b1qi", emoji: "🌍", name: "지구 덮기", desc: "블록 1Qi 건축", done: (a) => a.totalBlocks >= 1e18 },
+  { id: "b1sp", emoji: "🌌", name: "은하 덮기", desc: "블록 1Sp 건축", done: (a) => a.totalBlocks >= 1e24 },
+  { id: "b1e40", emoji: "♾️", name: "셀 수 없음", desc: "블록 1e40 건축", done: (a) => a.totalBlocks >= 1e40 },
+  { id: "lv10", emoji: "🔟", name: "10단계", desc: "건물 10단계 도달", done: (a) => a.level >= 10 },
+  { id: "lv100", emoji: "💯", name: "100단계", desc: "건물 100단계 도달", done: (a) => a.level >= 100 },
+  { id: "lv1000", emoji: "🏯", name: "1000단계", desc: "건물 1000단계 도달", done: (a) => a.level >= 1000 },
+  { id: "lv5000", emoji: "🗻", name: "5000단계", desc: "건물 5000단계 도달", done: (a) => a.level >= 5000 },
+  { id: "lvmax", emoji: "👑", name: "끝없는 끝", desc: "마지막 단계 도달", done: (a) => a.level >= BUILDING_LEVELS.length },
+  { id: "c100", emoji: "👆", name: "손가락 운동", desc: "직접 100번 클릭", done: (a) => a.totalClicks >= 100 },
+  { id: "c1000", emoji: "✊", name: "클릭 장인", desc: "직접 1000번 클릭", done: (a) => a.totalClicks >= 1000 },
+  { id: "c10000", emoji: "🦾", name: "강철 손가락", desc: "직접 10000번 클릭", done: (a) => a.totalClicks >= 10000 },
+  { id: "pet1", emoji: "🐶", name: "첫 친구", desc: "펫 1마리 입양", done: (a) => a.petsOwned >= 1 },
+  { id: "petall", emoji: "🐾", name: "동물원장", desc: "펫 모두 입양", done: (a) => a.petsOwned >= PETS.length },
+  { id: "n10", emoji: "🗺️", name: "세계 여행", desc: "나라 10개 보유", done: (a) => a.countriesOwned >= 10 },
+  { id: "nall", emoji: "🌐", name: "세계 정복", desc: "나라 모두 보유", done: (a) => a.countriesOwned >= COUNTRIES.length },
+  { id: "acmax", emoji: "🖱️", name: "자동화 완성", desc: "자동 클릭 최고 단계", done: (a) => a.autoClickLevel >= AUTO_CLICK_LEVELS.length - 1 },
+  { id: "g1", emoji: "✨", name: "반짝!", desc: "황금 블록 1번 누르기", done: (a) => a.goldenClicks >= 1 },
+  { id: "g25", emoji: "🌟", name: "황금 사냥꾼", desc: "황금 블록 25번 누르기", done: (a) => a.goldenClicks >= 25 },
+];
+
 const BUILD_SAVE_KEY = "building_save";
 const BUILD_MAX_OFFLINE_MIN = 480;
 
@@ -622,6 +691,7 @@ interface BuildSave {
   timestamp: number;
   // 아래는 나중에 추가된 값이라 옛 저장에는 없다.
   autoClickLevel?: number; autoClickOn?: boolean; petLevels?: Record<string, number>;
+  totalClicks?: number; goldenClicks?: number;
   /** 저장 시점의 실제 초당 생산량(펫·보너스 포함). 오프라인 보상에 쓴다. */
   effectiveAuto?: number;
   /** 이 저장에서 나라 보너스에 적용된 배율. 옛 저장은 1(없음)이다. */
@@ -647,6 +717,15 @@ export default function BuildingPage() {
   const [petLevels, setPetLevels] = useState<Record<string, number>>({});
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [buyAmount, setBuyAmount] = useState<BuyAmount>(1);
+  const [showAllTiers, setShowAllTiers] = useState(false);
+  const [showAchievements, setShowAchievements] = useState(false);
+  const [totalClicks, setTotalClicks] = useState(0);
+  const [goldenClicks, setGoldenClicks] = useState(0);
+  /** 화면에 떠 있는 황금 블록(위치는 %) */
+  const [golden, setGolden] = useState<{ id: number; x: number; y: number } | null>(null);
+  const [frenzy, setFrenzy] = useState(false);
+  const [goldenMsg, setGoldenMsg] = useState<string | null>(null);
   /** 자동 클릭 손가락의 위치(%). 누를 때마다 옮겨 간다. */
   const [tapAt, setTapAt] = useState<{ x: number; y: number; n: number } | null>(null);
   const nextEffectId = useRef(0);
@@ -667,9 +746,27 @@ export default function BuildingPage() {
     else if (pet.power === "allPct") petAllPct += v;
     else petCps += v;
   }
-  const allMult = 1 + petAllPct / 100;
-  const effectiveClick = Math.floor(clickPower * (1 + petClickPct / 100) * allMult);
-  const effectiveAuto = Math.floor((autoPerSec + petAuto) * allMult);
+  const levelIndex = levelIndexFor(totalBlocks);
+  const ownedPetCount = PETS.filter((p) => (petLevels[p.id] || 0) > 0).length;
+  const ownedCountryCount = Object.values(ownedCountries).filter(Boolean).length;
+  const achievementState: AchievementState = {
+    totalBlocks,
+    level: levelIndex + 1,
+    totalClicks,
+    petsOwned: ownedPetCount,
+    countriesOwned: ownedCountryCount,
+    autoClickLevel,
+    goldenClicks,
+  };
+  // 업적은 지금 상태에서 바로 계산한다(따로 저장하지 않아서 다시하기 하면 같이 사라진다)
+  const achievedCount = ACHIEVEMENTS.filter((a) => a.done(achievementState)).length;
+  const achievementMult = 1 + achievedCount * ACHIEVEMENT_BONUS;
+  const frenzyMult = frenzy ? FRENZY_MULT : 1;
+  const allMult = (1 + petAllPct / 100) * achievementMult;
+  const effectiveClick = Math.floor(clickPower * (1 + petClickPct / 100) * allMult * frenzyMult);
+  const effectiveAuto = Math.floor((autoPerSec + petAuto) * allMult * frenzyMult);
+  /** 오프라인 보상용: 잠깐 켜진 폭주는 빼고 저장한다 */
+  const steadyAuto = Math.floor((autoPerSec + petAuto) * allMult);
   const autoCps = AUTO_CLICK_LEVELS[autoClickLevel].cps + petCps;
 
   // --- Load save on mount ---
@@ -692,6 +789,8 @@ export default function BuildingPage() {
       setAutoClickLevel(Math.min(AUTO_CLICK_LEVELS.length - 1, Math.max(0, Math.floor(s.autoClickLevel ?? 0))));
       setAutoClickOn(s.autoClickOn ?? true);
       setPetLevels(s.petLevels ?? {});
+      setTotalClicks(s.totalClicks ?? 0);
+      setGoldenClicks(s.goldenClicks ?? 0);
       const offlinePerSec = s.effectiveAuto ?? s.autoPerSec;
       const diffMin = Math.min(Math.floor((Date.now() - s.timestamp) / 60000), BUILD_MAX_OFFLINE_MIN);
       if (diffMin >= 1 && offlinePerSec > 0) {
@@ -711,7 +810,8 @@ export default function BuildingPage() {
     const save = () => {
       const data: BuildSave = {
         blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, timestamp: Date.now(),
-        autoClickLevel, autoClickOn, petLevels, effectiveAuto, countryPower: COUNTRY_POWER,
+        autoClickLevel, autoClickOn, petLevels, effectiveAuto: steadyAuto, countryPower: COUNTRY_POWER,
+        totalClicks, goldenClicks,
       };
       localStorage.setItem(BUILD_SAVE_KEY, JSON.stringify(data));
     };
@@ -719,10 +819,9 @@ export default function BuildingPage() {
     const interval = setInterval(save, 5000);
     window.addEventListener("beforeunload", save);
     return () => { clearInterval(interval); window.removeEventListener("beforeunload", save); };
-  }, [loaded, blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, autoClickLevel, autoClickOn, petLevels, effectiveAuto]);
+  }, [loaded, blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, autoClickLevel, autoClickOn, petLevels, steadyAuto, totalClicks, goldenClicks]);
 
   // Current building level
-  const levelIndex = levelIndexFor(totalBlocks);
   const currentLevel = BUILDING_LEVELS[levelIndex];
   const nextLevel = BUILDING_LEVELS[levelIndex + 1] || null;
   const progress = nextLevel
@@ -765,6 +864,31 @@ export default function BuildingPage() {
     return () => clearInterval(interval);
   }, [autoClickOn, autoCps, effectiveClick]);
 
+  // 황금 블록: 없을 때 1~2분 뒤에 하나 띄우고, 떠 있으면 잠시 뒤 사라지게 한다
+  useEffect(() => {
+    if (!loaded) return;
+    if (golden) {
+      const t = setTimeout(() => setGolden(null), GOLDEN_LIFETIME_MS);
+      return () => clearTimeout(t);
+    }
+    const wait = GOLDEN_MIN_MS + Math.random() * (GOLDEN_MAX_MS - GOLDEN_MIN_MS);
+    const t = setTimeout(() => setGolden({ id: Date.now(), x: 15 + Math.random() * 70, y: 15 + Math.random() * 45 }), wait);
+    return () => clearTimeout(t);
+  }, [loaded, golden]);
+
+  // 건축 폭주가 끝나면 원래대로
+  useEffect(() => {
+    if (!frenzy) return;
+    const t = setTimeout(() => setFrenzy(false), FRENZY_MS);
+    return () => clearTimeout(t);
+  }, [frenzy]);
+
+  useEffect(() => {
+    if (!goldenMsg) return;
+    const t = setTimeout(() => setGoldenMsg(null), 3500);
+    return () => clearTimeout(t);
+  }, [goldenMsg]);
+
   // Clean up click effects
   useEffect(() => {
     if (clickEffects.length === 0) return;
@@ -782,6 +906,7 @@ export default function BuildingPage() {
       setBlocks((prev) => prev + effectiveClick);
       setTotalBlocks((prev) => prev + effectiveClick);
       setClickEffects((prev) => [...prev, { id: nextEffectId.current++, x, y, value: effectiveClick }]);
+      setTotalClicks((c) => c + 1);
     },
     [effectiveClick]
   );
@@ -791,17 +916,50 @@ export default function BuildingPage() {
     return Math.floor(upgrade.baseCost * Math.pow(upgrade.costMultiplier, level));
   };
 
+  /** 지금 고른 개수(×1·×10·×100·최대)로 살 때 몇 레벨을 얼마에 사는지 */
+  const bulkPlan = (upgrade: Upgrade): { n: number; cost: number } => {
+    const level = upgradeLevels[upgrade.id] || 0;
+    if (buyAmount === "max") {
+      const n = maxAffordable(upgrade, level, blocks);
+      return n > 0 ? { n, cost: bulkCost(upgrade, level, n) } : { n: 1, cost: getUpgradeCost(upgrade) };
+    }
+    return { n: buyAmount, cost: buyAmount === 1 ? getUpgradeCost(upgrade) : bulkCost(upgrade, level, buyAmount) };
+  };
+
   const buyUpgrade = (upgrade: Upgrade) => {
-    const cost = getUpgradeCost(upgrade);
+    const { n, cost } = bulkPlan(upgrade);
     if (blocks < cost) return;
     setBlocks((prev) => prev - cost);
-    setUpgradeLevels((prev) => ({ ...prev, [upgrade.id]: (prev[upgrade.id] || 0) + 1 }));
+    setUpgradeLevels((prev) => ({ ...prev, [upgrade.id]: (prev[upgrade.id] || 0) + n }));
     if (upgrade.effect === "clickPower") {
-      setClickPower((prev) => prev + upgrade.effectValue);
+      setClickPower((prev) => prev + upgrade.effectValue * n);
     } else {
-      setAutoPerSec((prev) => prev + upgrade.effectValue);
+      setAutoPerSec((prev) => prev + upgrade.effectValue * n);
     }
   };
+
+  const clickGolden = () => {
+    if (!golden) return;
+    setGolden(null);
+    setGoldenClicks((c) => c + 1);
+    if (Math.random() < 0.5) {
+      // 블록 대박: 2분 치 자동 생산 또는 클릭 500번 중 큰 쪽
+      const lump = Math.max(effectiveAuto * 120, effectiveClick * 500, 100);
+      setBlocks((prev) => prev + lump);
+      setTotalBlocks((prev) => prev + lump);
+      setGoldenMsg(`✨ 블록 대박! +${formatNumber(lump)}`);
+    } else {
+      setFrenzy(true);
+      setGoldenMsg(`🔥 건축 폭주! ${FRENZY_MS / 1000}초 동안 모든 생산 ${FRENZY_MULT}배`);
+    }
+  };
+
+  // 가까운 등급만 보여 주기: 살 수 있거나 가진 아이템이 있는 가장 높은 등급의 바로 다음 등급까지
+  let reachTier = 1;
+  TIER_ORDER.forEach((tier, i) => {
+    if (UPGRADES.some((u) => u.tier === tier && ((upgradeLevels[u.id] || 0) > 0 || blocks >= getUpgradeCost(u)))) reachTier = Math.max(reachTier, i + 1);
+  });
+  const visibleTiers = showAllTiers ? TIER_ORDER : TIER_ORDER.slice(0, reachTier + 1);
 
   const buyCountry = (country: CountryUpgrade) => {
     if (blocks < country.cost || ownedCountries[country.id]) return;
@@ -883,6 +1041,11 @@ export default function BuildingPage() {
     setTapAt(null);
     setOfflineReward(null);
     autoClickAccRef.current = 0;
+    setTotalClicks(0);
+    setGoldenClicks(0);
+    setGolden(null);
+    setFrenzy(false);
+    setGoldenMsg(null);
     setConfirmReset(false);
   };
 
@@ -930,6 +1093,7 @@ export default function BuildingPage() {
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500">초당 자동</p>
             <p className="text-2xl font-black text-zinc-900 dark:text-white">⚡ {formatNumber(effectiveAuto)}</p>
+            {frenzy && <p className="animate-pulse text-xs font-black text-orange-500">🔥 건축 폭주 ×{FRENZY_MULT}!</p>}
             {autoClickOn && autoCps > 0 && <p className="text-xs font-bold text-blue-500">🖱️ 자동 클릭 {autoCps}회/초</p>}
           </div>
         </div>
@@ -967,7 +1131,23 @@ export default function BuildingPage() {
         {/* Click Area + Upgrades */}
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Click Area */}
-          <div className="lg:col-span-2">
+          <div className="relative lg:col-span-2">
+            {golden && (
+              <button
+                key={golden.id}
+                onClick={clickGolden}
+                aria-label="황금 블록"
+                className="absolute z-20 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-yellow-200 via-amber-400 to-yellow-600 text-3xl shadow-[0_0_25px_rgba(250,204,21,0.9)] transition-transform hover:scale-110"
+                style={{ left: `${golden.x}%`, top: golden.y * 3, animation: "goldenPulse 0.9s ease-in-out infinite" }}
+              >
+                ✨
+              </button>
+            )}
+            {goldenMsg && (
+              <div className="pointer-events-none absolute inset-x-0 top-12 z-20 text-center">
+                <span className="rounded-full bg-amber-400 px-4 py-2 text-sm font-black text-zinc-900 shadow-lg">{goldenMsg}</span>
+              </div>
+            )}
             <button
               ref={clickAreaRef}
               onClick={handleClick}
@@ -1156,7 +1336,20 @@ export default function BuildingPage() {
           {/* Upgrades */}
           <div className="space-y-2 overflow-y-auto" style={{ maxHeight: 480 }}>
             <h3 className="text-center text-lg font-bold text-zinc-900 dark:text-white">🛒 업그레이드</h3>
-            {TIER_ORDER.map((tier) => {
+            <div className="flex items-center justify-center gap-1">
+              {BUY_AMOUNTS.map((a) => (
+                <button
+                  key={a}
+                  onClick={() => setBuyAmount(a)}
+                  className={`rounded-full px-3 py-1 text-xs font-black ${
+                    buyAmount === a ? "bg-amber-400 text-zinc-900" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300"
+                  }`}
+                >
+                  {a === "max" ? "최대" : `×${a}`}
+                </button>
+              ))}
+            </div>
+            {visibleTiers.map((tier) => {
               const tierUpgrades = UPGRADES.filter((u) => u.tier === tier);
               const info = TIER_INFO[tier];
               return (
@@ -1167,11 +1360,11 @@ export default function BuildingPage() {
                     <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
                   </div>
                   {tierUpgrades.map((upgrade) => {
-                    const cost = getUpgradeCost(upgrade);
+                    const { n, cost } = bulkPlan(upgrade);
                     const level = upgradeLevels[upgrade.id] || 0;
                     const canBuy = blocks >= cost;
-                    // ??? 등급은 살 수 있을 만큼 모으거나 이미 가진 것만 정체를 보여 준다
-                    const hidden = tier === "mystery" && level === 0 && !canBuy;
+                    // ??? 등급은 한 개라도 살 수 있을 만큼 모으거나 이미 가진 것만 정체를 보여 준다
+                    const hidden = tier === "mystery" && level === 0 && blocks < getUpgradeCost(upgrade);
                     return (
                       <button
                         key={upgrade.id}
@@ -1193,7 +1386,9 @@ export default function BuildingPage() {
                                   <span className={`ml-1 text-xs ${info.text}`}>Lv.{level}</span>
                                 )}
                               </p>
-                              <p className="text-xs font-bold text-amber-600 dark:text-amber-400">🧱 {formatNumber(cost)}</p>
+                              <p className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                                {n > 1 && <span className="mr-1 text-blue-500">+{formatNumber(n)}</span>}🧱 {formatNumber(cost)}
+                              </p>
                             </div>
                             <p className="text-xs text-zinc-500 dark:text-zinc-400">{hidden ? "정체불명의 힘… 블록을 모으면 드러나요" : upgrade.desc}</p>
                           </div>
@@ -1204,7 +1399,58 @@ export default function BuildingPage() {
                 </div>
               );
             })}
+            <button
+              onClick={() => setShowAllTiers((v) => !v)}
+              className="w-full rounded-xl bg-zinc-100 py-2 text-xs font-bold text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+            >
+              {showAllTiers ? "▲ 가까운 등급만 보기" : `▼ 모든 등급 보기 (${TIER_ORDER.length}개 중 ${visibleTiers.length}개 보는 중)`}
+            </button>
           </div>
+        </div>
+
+        {/* 업적 */}
+        <div className="mt-8">
+          <button
+            onClick={() => setShowAchievements((v) => !v)}
+            className="mb-4 w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition-all hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🏅</span>
+                <div>
+                  <p className="font-bold text-zinc-900 dark:text-white">
+                    업적 {achievedCount}/{ACHIEVEMENTS.length}
+                  </p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    업적 하나마다 모든 생산 +{Math.round(ACHIEVEMENT_BONUS * 100)}% · 지금 +{Math.round(achievedCount * ACHIEVEMENT_BONUS * 100)}%
+                  </p>
+                </div>
+              </div>
+              <span className="text-zinc-400">{showAchievements ? "▲" : "▼"}</span>
+            </div>
+          </button>
+          {showAchievements && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+              {ACHIEVEMENTS.map((a) => {
+                const done = a.done(achievementState);
+                return (
+                  <div
+                    key={a.id}
+                    className={`rounded-2xl border p-3 text-center ${
+                      done
+                        ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40"
+                        : "border-zinc-200 bg-zinc-50 opacity-60 dark:border-zinc-800 dark:bg-zinc-900"
+                    }`}
+                  >
+                    <div className={`text-3xl ${done ? "" : "grayscale"}`}>{a.emoji}</div>
+                    <p className="mt-1 text-sm font-black text-zinc-900 dark:text-white">{a.name}</p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{a.desc}</p>
+                    {done && <p className="mt-1 text-xs font-bold text-amber-600 dark:text-amber-400">달성 ✅</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Country Upgrades Section */}
@@ -1506,6 +1752,10 @@ export default function BuildingPage() {
         @keyframes autoTap {
           0% { transform: translate(-50%, -80%) scale(1.3); opacity: 0.6; }
           100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+        @keyframes goldenPulse {
+          0%, 100% { transform: scale(1) rotate(-6deg); }
+          50% { transform: scale(1.15) rotate(6deg); }
         }
         @keyframes floatUp {
           0% {
