@@ -371,8 +371,50 @@ const TERA_LEVELS: BuildingLevel[] = Array.from({ length: TERA_LEVEL_COUNT }, (_
 
 const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS, ...MEGA_LEVELS, ...GIGA_LEVELS, ...TERA_LEVELS];
 
-/** 총 블록으로 도달한 마지막 단계의 번호. 단계가 1만 개가 넘어서 처음부터 훑지 않고 반씩 나눠 찾는다. */
+// --- 그다음 99,999,999,999,999단계(약 100조) ---
+// 이만큼은 배열로 만들 수 없다(저장 공간이 모자란다). 그래서 번호만 주면 그 단계를 공식으로 바로 만들어 낸다.
+// 마지막 단계를 1e300(자바스크립트 숫자가 셀 수 있는 거의 끝)에 맞추므로 단계 간격이 아주 작다.
+// 블록이 두 배가 될 때마다 약 1200억 단계씩 오른다.
+const PROC_LEVEL_COUNT = 99_999_999_999_999;
+const PROC_BASE = BUILDING_LEVELS[BUILDING_LEVELS.length - 1].blocksNeeded;
+const PROC_TOP = 1e300;
+const PROC_LN_STEP = Math.log(PROC_TOP / PROC_BASE) / PROC_LEVEL_COUNT;
+const FIXED_LEVEL_COUNT = BUILDING_LEVELS.length;
+const TOTAL_LEVELS = FIXED_LEVEL_COUNT + PROC_LEVEL_COUNT;
+
+/** k 번째(1부터) 공식 단계에 필요한 블록 */
+function procBlocksNeeded(k: number): number {
+  return PROC_BASE * Math.exp(PROC_LN_STEP * k);
+}
+
+/** 단계 번호(0부터)로 단계를 얻는다. 앞의 11,510개는 표에서, 그 뒤는 공식으로 만든다. */
+function getLevel(index: number): BuildingLevel {
+  if (index < FIXED_LEVEL_COUNT) return BUILDING_LEVELS[index];
+  const k = index - FIXED_LEVEL_COUNT + 1;
+  if (k >= PROC_LEVEL_COUNT) {
+    return { name: "진짜진짜 마지막 · 숫자의 끝", emoji: "🔚", blocksNeeded: PROC_TOP, color: "from-white via-zinc-400 to-black" };
+  }
+  const perCycle = MEGA_THEMES.length * MEGA_STRUCTURES.length;
+  const theme = MEGA_THEMES[Math.floor(k / MEGA_STRUCTURES.length) % MEGA_THEMES.length];
+  const cycle = Math.floor(k / perCycle) + 1;
+  return {
+    name: `${theme.name} ${MEGA_STRUCTURES[k % MEGA_STRUCTURES.length]} #${cycle.toLocaleString()}`,
+    emoji: theme.emojis[k % theme.emojis.length],
+    blocksNeeded: procBlocksNeeded(k),
+    color: theme.color,
+  };
+}
+
+/** 총 블록으로 도달한 마지막 단계의 번호(0부터). 표 부분은 반씩 나눠 찾고, 공식 부분은 로그로 바로 계산한다. */
 function levelIndexFor(totalBlocks: number): number {
+  if (totalBlocks >= procBlocksNeeded(1)) {
+    let k = Math.floor(Math.log(totalBlocks / PROC_BASE) / PROC_LN_STEP);
+    // 소수점 오차 보정: 계산한 단계가 실제로 도달한 단계가 되도록 앞뒤로 한두 칸 맞춘다
+    k = Math.max(1, Math.min(PROC_LEVEL_COUNT, k));
+    for (let i = 0; i < 4 && k > 1 && procBlocksNeeded(k) > totalBlocks; i++) k--;
+    for (let i = 0; i < 4 && k < PROC_LEVEL_COUNT && procBlocksNeeded(k + 1) <= totalBlocks; i++) k++;
+    return FIXED_LEVEL_COUNT - 1 + k;
+  }
   let lo = 0;
   let hi = BUILDING_LEVELS.length - 1;
   while (lo < hi) {
@@ -669,7 +711,7 @@ const ACHIEVEMENTS: { id: string; emoji: string; name: string; desc: string; don
   { id: "lv100", emoji: "💯", name: "100단계", desc: "건물 100단계 도달", done: (a) => a.level >= 100 },
   { id: "lv1000", emoji: "🏯", name: "1000단계", desc: "건물 1000단계 도달", done: (a) => a.level >= 1000 },
   { id: "lv5000", emoji: "🗻", name: "5000단계", desc: "건물 5000단계 도달", done: (a) => a.level >= 5000 },
-  { id: "lvmax", emoji: "👑", name: "끝없는 끝", desc: "마지막 단계 도달", done: (a) => a.level >= BUILDING_LEVELS.length },
+  { id: "lvmax", emoji: "👑", name: "끝없는 끝", desc: "마지막 단계 도달", done: (a) => a.level >= TOTAL_LEVELS },
   { id: "c100", emoji: "👆", name: "손가락 운동", desc: "직접 100번 클릭", done: (a) => a.totalClicks >= 100 },
   { id: "c1000", emoji: "✊", name: "클릭 장인", desc: "직접 1000번 클릭", done: (a) => a.totalClicks >= 1000 },
   { id: "c10000", emoji: "🦾", name: "강철 손가락", desc: "직접 10000번 클릭", done: (a) => a.totalClicks >= 10000 },
@@ -822,8 +864,8 @@ export default function BuildingPage() {
   }, [loaded, blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, autoClickLevel, autoClickOn, petLevels, steadyAuto, totalClicks, goldenClicks]);
 
   // Current building level
-  const currentLevel = BUILDING_LEVELS[levelIndex];
-  const nextLevel = BUILDING_LEVELS[levelIndex + 1] || null;
+  const currentLevel = getLevel(levelIndex);
+  const nextLevel = levelIndex + 1 < TOTAL_LEVELS ? getLevel(levelIndex + 1) : null;
   const progress = nextLevel
     ? ((totalBlocks - currentLevel.blocksNeeded) / (nextLevel.blocksNeeded - currentLevel.blocksNeeded)) * 100
     : 100;
@@ -1107,7 +1149,7 @@ export default function BuildingPage() {
                 <p className="font-bold text-zinc-900 dark:text-white">
                   {currentLevel.name}{" "}
                   <span className="text-xs font-semibold text-zinc-400">
-                    {(levelIndex + 1).toLocaleString()}단계 / {BUILDING_LEVELS.length.toLocaleString()}
+                    {(levelIndex + 1).toLocaleString()}단계 / {TOTAL_LEVELS.toLocaleString()}
                   </span>
                 </p>
                 <p className="text-xs text-zinc-400">총 {formatNumber(totalBlocks)}블록 건축</p>
