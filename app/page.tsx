@@ -1233,6 +1233,13 @@ export default function Home() {
                 bg: "from-red-600 via-rose-600 to-zinc-900",
                 href: "/livetube",
               },
+              {
+                emoji: "☢️",
+                title: "핵폭탄 만들기",
+                desc: "재료 사서 조립하고 악당 기지 10곳 점령!",
+                bg: "from-lime-500 via-emerald-700 to-zinc-900",
+                href: "/nukemaker",
+              },
             ].map((item) => {
               const Card = (
                 <div
