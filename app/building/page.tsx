@@ -646,6 +646,7 @@ export default function BuildingPage() {
   const [autoClickOn, setAutoClickOn] = useState(true);
   const [petLevels, setPetLevels] = useState<Record<string, number>>({});
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   /** 자동 클릭 손가락의 위치(%). 누를 때마다 옮겨 간다. */
   const [tapAt, setTapAt] = useState<{ x: number; y: number; n: number } | null>(null);
   const nextEffectId = useRef(0);
@@ -861,6 +862,30 @@ export default function BuildingPage() {
     setBulkResult(`펫 ${touched.size}마리, 총 +${formatNumber(bought)}레벨! (🧱 ${formatNumber(spent)} 사용)`);
   };
 
+  /** 다시하기: 모든 진행을 지우고 처음 상태로 돌아간다. 저장도 지운다(곧바로 빈 상태로 다시 저장된다). */
+  const resetGame = () => {
+    try {
+      localStorage.removeItem(BUILD_SAVE_KEY);
+    } catch {
+      // 저장소가 막혀 있어도 화면은 처음 상태로 돌린다.
+    }
+    setBlocks(0);
+    setTotalBlocks(0);
+    setClickPower(1);
+    setAutoPerSec(0);
+    setUpgradeLevels({});
+    setOwnedCountries({});
+    setAutoClickLevel(0);
+    setAutoClickOn(true);
+    setPetLevels({});
+    setBulkResult(null);
+    setClickEffects([]);
+    setTapAt(null);
+    setOfflineReward(null);
+    autoClickAccRef.current = 0;
+    setConfirmReset(false);
+  };
+
   const ownedPets = PETS.filter((p) => (petLevels[p.id] || 0) > 0);
   const ownedCount = Object.values(ownedCountries).filter(Boolean).length;
 
@@ -882,7 +907,12 @@ export default function BuildingPage() {
             🏠 소개페이지
           </Link>
           <span className="text-lg font-bold text-zinc-900 dark:text-white">🏗️ 건축 클리커</span>
-          <div className="w-20" />
+          <button
+            onClick={() => setConfirmReset(true)}
+            className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm font-bold text-zinc-600 transition-colors hover:border-red-400 hover:text-red-500 dark:border-zinc-700 dark:text-zinc-300"
+          >
+            🔄 다시하기
+          </button>
         </div>
       </header>
 
@@ -1428,6 +1458,33 @@ export default function BuildingPage() {
               </div>
               <button onClick={() => setOfflineReward(null)} className="mt-2 w-full rounded-full bg-gradient-to-r from-blue-400 to-cyan-400 py-3 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 active:scale-95">
                 받기! 🎁
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 다시하기 확인 */}
+      {confirmReset && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmReset(false)}>
+          <div
+            className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-5xl">🔄</div>
+            <p className="mt-3 text-xl font-black text-zinc-900 dark:text-white">정말 처음부터 할까요?</p>
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              블록 {formatNumber(blocks)}개, 아이템, 펫 {ownedPets.length}마리, 나라 {ownedCount}개, 자동 클릭이 모두 사라지고 되돌릴 수 없어요.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setConfirmReset(false)}
+                className="flex-1 rounded-xl bg-zinc-100 py-3 font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+              >
+                취소
+              </button>
+              <button onClick={resetGame} className="flex-1 rounded-xl bg-red-500 py-3 font-black text-white hover:bg-red-600">
+                다시하기
               </button>
             </div>
           </div>
