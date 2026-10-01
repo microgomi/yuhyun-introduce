@@ -66,12 +66,55 @@ function powerCost(lv: number) {
 const SHIELD_PRICE = 80;
 const SHIELD_AMOUNT = 50;
 
+// --- 핵폭탄 등급 ---
+/** 망치로 두드리거나 조립하면 이 확률로 등급이 정해진다. 위력은 기본 피해에 곱한다. */
+const RARITIES = [
+  { name: "일반", emoji: "⚪", chance: 60, mult: 1, color: "from-zinc-400 to-zinc-600" },
+  { name: "드문", emoji: "🟢", chance: 20, mult: 2, color: "from-green-400 to-emerald-600" },
+  { name: "레어", emoji: "🔵", chance: 10, mult: 4, color: "from-sky-400 to-blue-600" },
+  { name: "에픽", emoji: "🟣", chance: 5, mult: 8, color: "from-violet-400 to-purple-700" },
+  { name: "전설", emoji: "🟠", chance: 3, mult: 16, color: "from-amber-300 to-orange-600" },
+  { name: "신화", emoji: "🔴", chance: 1.4, mult: 32, color: "from-rose-400 to-red-700" },
+  { name: "비밀", emoji: "⚫", chance: 0.5, mult: 64, color: "from-zinc-700 to-black" },
+  { name: "초월", emoji: "🌈", chance: 0.1, mult: 128, color: "from-red-400 via-yellow-300 to-violet-500" },
+];
+const EMPTY_INV = RARITIES.map(() => 0);
+
+function rollRarity(): number {
+  let r = Math.random() * RARITIES.reduce((sum, x) => sum + x.chance, 0);
+  for (let i = 0; i < RARITIES.length; i++) {
+    r -= RARITIES[i].chance;
+    if (r < 0) return i;
+  }
+  return 0;
+}
+
+/** 망치를 이만큼 두드리면 핵폭탄 1개 */
+const HITS_PER_NUKE = 15;
+/** 같은 등급 이만큼을 합치면 다음 등급 1개 */
+const MERGE_COUNT = 3;
+
+/** 낮은 등급부터 times 번 합체한다. 더 합칠 게 없으면 멈춘다. */
+function mergeInv(inv: number[], times: number): { inv: number[]; merges: number } {
+  const next = [...inv];
+  let merges = 0;
+  while (merges < times) {
+    const r = next.findIndex((n, i) => i < next.length - 1 && n >= MERGE_COUNT);
+    if (r < 0) break;
+    next[r] -= MERGE_COUNT;
+    next[r + 1] += 1;
+    merges++;
+  }
+  return { inv: next, merges };
+}
+
 const SAVE_KEY = "nukemaker_save_v1";
 
 interface Save {
   money: number;
   stock: Record<MaterialId, number>;
-  nukes: number;
+  /** 등급별 핵폭탄 개수(RARITIES 순서) */
+  inv: number[];
   mineLv: number;
   powerLv: number;
   shield: number;
@@ -84,7 +127,7 @@ interface Save {
 const NEW_GAME: Save = {
   money: 150,
   stock: { core: 0, plate: 0, body: 0 },
-  nukes: 0,
+  inv: EMPTY_INV,
   mineLv: 1,
   powerLv: 1,
   shield: 0,
@@ -98,7 +141,7 @@ function loadSave(): Save {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return NEW_GAME;
-    const d = JSON.parse(raw) as Partial<Save>;
+    const d = JSON.parse(raw) as Partial<Save> & { nukes?: number };
     const num = (v: unknown, def: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : def);
     const enemy = Math.min(ENEMIES.length, Math.floor(num(d.enemy, 0)));
     return {
@@ -108,7 +151,10 @@ function loadSave(): Save {
         plate: Math.floor(num(d.stock?.plate, 0)),
         body: Math.floor(num(d.stock?.body, 0)),
       },
-      nukes: Math.floor(num(d.nukes, 0)),
+      // 등급이 생기기 전 저장은 핵폭탄 개수만 있었다 → 모두 일반으로 옮긴다
+      inv: Array.isArray(d.inv)
+        ? RARITIES.map((_, i) => Math.floor(num(d.inv?.[i], 0)))
+        : RARITIES.map((_, i) => (i === 0 ? Math.floor(num(d.nukes, 0)) : 0)),
       mineLv: Math.max(1, Math.floor(num(d.mineLv, 1))),
       powerLv: Math.max(1, Math.floor(num(d.powerLv, 1))),
       shield: num(d.shield, 0),
@@ -207,6 +253,37 @@ export default function NukeMaker() {
 
   const canBuild = (Object.keys(RECIPE) as MaterialId[]).every((id) => game.stock[id] >= RECIPE[id]);
 
+  const totalNukes = game.inv.reduce((a, b) => a + b, 0);
+  const strongest = game.inv.reduce((best, n, i) => (n > 0 ? i : best), -1);
+
+  // 망치 대장간
+  const [hits, setHits] = useState(0);
+  const [forged, setForged] = useState<{ r: number; id: number } | null>(null);
+  const [mergeTimes, setMergeTimes] = useState(1);
+
+  const hammer = () => {
+    if (hits + 1 < HITS_PER_NUKE) {
+      setHits(hits + 1);
+      return;
+    }
+    setHits(0);
+    const r = rollRarity();
+    setGame((g) => ({ ...g, inv: g.inv.map((n, i) => (i === r ? n + 1 : n)) }));
+    setForged({ r, id: ++fxId.current });
+    if (r >= 4) say(`🔨 대박! ${RARITIES[r].emoji} ${RARITIES[r].name} 핵폭탄이 나왔어요!`);
+  };
+
+  const merge = (times: number) => {
+    const { inv, merges } = mergeInv(game.inv, times);
+    if (merges === 0) {
+      say(`⚡ 합칠 게 없어요 (같은 등급 ${MERGE_COUNT}개가 필요해요)`);
+      return;
+    }
+    setGame((g) => ({ ...g, inv }));
+    const top = inv.reduce((best, n, i) => (n > 0 ? i : best), 0);
+    say(`⚡ ${merges}번 합체! 가장 센 핵폭탄: ${RARITIES[top].emoji} ${RARITIES[top].name}`);
+  };
+
   const build = () => {
     if (!canBuild || building) return;
     setBuilding(true);
@@ -215,24 +292,27 @@ export default function NukeMaker() {
       stock: { core: g.stock.core - RECIPE.core, plate: g.stock.plate - RECIPE.plate, body: g.stock.body - RECIPE.body },
     }));
     setTimeout(() => {
-      setGame((g) => ({ ...g, nukes: g.nukes + 1 }));
+      const r = rollRarity();
+      setGame((g) => ({ ...g, inv: g.inv.map((n, i) => (i === r ? n + 1 : n)) }));
       setBuilding(false);
-      say("🏭 핵폭탄 1개 완성!");
+      say(`🏭 조립 완성! ${RARITIES[r].emoji} ${RARITIES[r].name} 핵폭탄`);
     }, BUILD_MS);
   };
 
   const launch = () => {
-    if (game.nukes <= 0 || cleared || fx?.kind === "launch") return;
-    setGame((g) => ({ ...g, nukes: g.nukes - 1 }));
+    if (totalNukes <= 0 || cleared || fx?.kind === "launch") return;
+    // 가진 것 중 가장 센 등급부터 쏜다
+    const r = strongest;
+    setGame((g) => ({ ...g, inv: g.inv.map((n, i) => (i === r ? n - 1 : n)) }));
     setFx({ kind: "launch", id: ++fxId.current });
     setTimeout(() => {
       setFx({ kind: "boom", id: ++fxId.current });
       const g = gameRef.current;
       if (g.enemy >= ENEMIES.length) return;
-      const dmg = nukeDamage(g.powerLv);
+      const dmg = nukeDamage(g.powerLv) * RARITIES[r].mult;
       if (g.enemyHp - dmg > 0) {
         setGame((cur) => ({ ...cur, enemyHp: cur.enemyHp - dmg }));
-        say(`💥 명중! ${ENEMIES[g.enemy].name} -${dmg.toLocaleString()}`);
+        say(`💥 ${RARITIES[r].emoji} ${RARITIES[r].name} 명중! ${ENEMIES[g.enemy].name} -${dmg.toLocaleString()}`);
         return;
       }
       const beaten = g.enemy;
@@ -310,6 +390,10 @@ export default function NukeMaker() {
           40% { opacity: 1; }
           100% { transform: translateY(-40px) scale(1.4); opacity: 0; }
         }
+        @keyframes hammerHit {
+          0% { transform: rotate(-40deg) scale(1.1); }
+          100% { transform: rotate(0deg) scale(1); }
+        }
         @keyframes coinUp {
           0% { transform: translateY(0); opacity: 1; }
           100% { transform: translateY(-50px); opacity: 0; }
@@ -330,7 +414,7 @@ export default function NukeMaker() {
         {/* 상태 */}
         <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
           <Stat label="💰 돈" value={Math.floor(game.money).toLocaleString()} />
-          <Stat label="☢️ 핵폭탄" value={`${game.nukes}개`} />
+          <Stat label="☢️ 핵폭탄" value={`${totalNukes}개`} />
           <Stat label="💥 폭탄 위력" value={nukeDamage(game.powerLv).toLocaleString()} />
           <Stat label="🏆 점령" value={`${game.wins}/${ENEMIES.length}`} />
         </div>
@@ -391,11 +475,85 @@ export default function NukeMaker() {
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           <button
             onClick={launch}
-            disabled={game.nukes <= 0 || cleared || fx?.kind === "launch"}
+            disabled={totalNukes <= 0 || cleared || fx?.kind === "launch"}
             className="rounded-2xl bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-2xl font-black shadow-lg transition-transform hover:scale-105 disabled:opacity-40"
           >
-            🚀 핵폭탄 발사! ({game.nukes})
+            🚀 {strongest >= 0 ? `${RARITIES[strongest].emoji} ${RARITIES[strongest].name}` : "핵폭탄"} 발사! ({totalNukes})
           </button>
+        </div>
+
+        {/* 망치 대장간 + 등급별 핵폭탄 + 합체 */}
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-3xl bg-white/5 p-4">
+            <h2 className="mb-2 font-black">🔨 망치 대장간</h2>
+            <button
+              onClick={hammer}
+              className="relative flex h-36 w-full flex-col items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-b from-orange-700 to-zinc-800 transition-transform active:scale-95"
+            >
+              <span key={hits} className="text-6xl" style={{ animation: "hammerHit 0.15s ease-out" }}>
+                🔨
+              </span>
+              <span className="mt-1 text-sm font-bold">쾅쾅 두드리기!</span>
+              {forged && (
+                <span
+                  key={forged.id}
+                  className="pointer-events-none absolute top-3 rounded-full bg-black/60 px-3 py-1 text-sm font-black"
+                  style={{ animation: "coinUp 1.2s ease-out forwards" }}
+                >
+                  {RARITIES[forged.r].emoji} {RARITIES[forged.r].name}!
+                </span>
+              )}
+            </button>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/40">
+              <div className="h-full bg-orange-400 transition-all" style={{ width: `${(hits / HITS_PER_NUKE) * 100}%` }} />
+            </div>
+            <p className="mt-1 text-center text-xs text-white/60">
+              {HITS_PER_NUKE - hits}번 더 두드리면 핵폭탄이 나와요 (등급은 무작위)
+            </p>
+          </div>
+
+          <div className="rounded-3xl bg-white/5 p-4 lg:col-span-2">
+            <h2 className="mb-2 font-black">☢️ 내 핵폭탄</h2>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+              {RARITIES.map((r, i) => (
+                <div
+                  key={r.name}
+                  className={`rounded-xl bg-gradient-to-b p-2 text-center ${r.color} ${game.inv[i] > 0 ? "" : "opacity-30"}`}
+                >
+                  <div className="text-2xl">{r.emoji}</div>
+                  <div className="text-xs font-black">{r.name}</div>
+                  <div className="text-lg font-black">{game.inv[i]}</div>
+                  <div className="text-[10px] text-white/80">
+                    위력×{r.mult} · {r.chance}%
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-xs text-white/60">⚡ 합체 ({MERGE_COUNT}개 → 다음 등급 1개) 한 번에</span>
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setMergeTimes(n)}
+                  className={`h-7 w-7 rounded-lg text-xs font-black ${mergeTimes === n ? "bg-amber-400 text-zinc-900" : "bg-white/10"}`}
+                >
+                  {n}
+                </button>
+              ))}
+              <span className="text-xs text-white/60">번</span>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button onClick={() => merge(mergeTimes)} className="flex-1 rounded-xl bg-amber-500 py-2 font-black text-zinc-900">
+                ⚡ {mergeTimes}번 합체
+              </button>
+              <button
+                onClick={() => merge(Number.MAX_SAFE_INTEGER)}
+                className="flex-1 rounded-xl bg-gradient-to-r from-fuchsia-500 to-amber-400 py-2 font-black"
+              >
+                ⚡⚡ 모두 순식간에 합체
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
