@@ -4,14 +4,39 @@ import Link from "next/link";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // --- Clicker Game Types ---
+// --- ??? 위 15등급 ---
+// 등급 하나 오를 때마다 아이템 힘은 10배, 가격은 100배(??? 등급과 같은 규칙). 아이템 수치는 UPGRADES 아래에서 만든다.
+// 색 클래스는 Tailwind 가 찾을 수 있게 문자열 그대로 적어 둔다.
+const HIGHER_TIERS = [
+  { id: "cosmic", label: "우주적", emoji: "🌌", activeBorder: "border-indigo-500", activeBg: "bg-gradient-to-r from-indigo-100 to-violet-200 dark:from-indigo-950 dark:to-violet-950", text: "text-indigo-500", items: [["성운 망치", "🌫️"], ["은하 용광로", "🌌"], ["블랙홀 손", "🕳️"], ["우주 조선소", "🚀"]] },
+  { id: "dimension", label: "차원초월", emoji: "🌀", activeBorder: "border-sky-500", activeBg: "bg-gradient-to-r from-sky-100 to-indigo-200 dark:from-sky-950 dark:to-indigo-950", text: "text-sky-500", items: [["차원 송곳", "🌀"], ["평행 세계 공장", "🪞"], ["포털 장갑", "🧤"], ["차원 엔진", "🔷"]] },
+  { id: "creation", label: "창조", emoji: "✨", activeBorder: "border-yellow-400", activeBg: "bg-gradient-to-r from-yellow-50 to-white dark:from-yellow-950 dark:to-zinc-900", text: "text-yellow-500", items: [["창조의 붓", "🖌️"], ["빛의 공방", "✨"], ["생명의 손길", "🌱"], ["창조의 용광로", "🔥"]] },
+  { id: "ruin", label: "파멸", emoji: "💀", activeBorder: "border-red-700", activeBg: "bg-gradient-to-r from-red-100 to-zinc-300 dark:from-red-950 dark:to-black", text: "text-red-700", items: [["파멸의 도끼", "🪓"], ["재의 공장", "💀"], ["멸망의 주먹", "👊"], ["종말 엔진", "☄️"]] },
+  { id: "fate", label: "운명", emoji: "🎲", activeBorder: "border-emerald-500", activeBg: "bg-gradient-to-r from-emerald-100 to-teal-200 dark:from-emerald-950 dark:to-teal-950", text: "text-emerald-500", items: [["운명의 주사위", "🎲"], ["행운의 공장", "🍀"], ["운명의 실", "🧵"], ["별자리 엔진", "♈"]] },
+  { id: "spacetime", label: "시공", emoji: "⏱️", activeBorder: "border-cyan-500", activeBg: "bg-gradient-to-r from-cyan-100 to-blue-200 dark:from-cyan-950 dark:to-blue-950", text: "text-cyan-500", items: [["시간 망치", "⏱️"], ["시공 공장", "⌛"], ["멈춘 시간의 손", "✋"], ["타임 엔진", "🕰️"]] },
+  { id: "chaos", label: "혼돈", emoji: "🌪️", activeBorder: "border-fuchsia-600", activeBg: "bg-gradient-to-r from-fuchsia-100 via-lime-100 to-orange-100 dark:from-fuchsia-950 dark:via-lime-950 dark:to-orange-950", text: "text-fuchsia-600", items: [["혼돈의 소용돌이", "🌪️"], ["뒤죽박죽 공장", "🎪"], ["광기의 손", "🤪"], ["혼돈 엔진", "💥"]] },
+  { id: "order", label: "질서", emoji: "🏛️", activeBorder: "border-slate-500", activeBg: "bg-gradient-to-r from-slate-100 to-blue-100 dark:from-slate-900 dark:to-blue-950", text: "text-slate-500", items: [["질서의 자", "📏"], ["완벽한 공장", "🏛️"], ["균형의 손", "⚖️"], ["법칙 엔진", "📐"]] },
+  { id: "aeon", label: "영겁", emoji: "🕰️", activeBorder: "border-amber-600", activeBg: "bg-gradient-to-r from-amber-100 to-stone-200 dark:from-amber-950 dark:to-stone-900", text: "text-amber-600", items: [["영겁의 모래", "⏳"], ["끝없는 공장", "🏭"], ["천년의 손", "🖐️"], ["영겁 엔진", "♾️"]] },
+  { id: "yinyang", label: "천상천하", emoji: "☯️", activeBorder: "border-zinc-800 dark:border-white", activeBg: "bg-gradient-to-r from-white to-zinc-300 dark:from-zinc-800 dark:to-black", text: "text-zinc-800 dark:text-white", items: [["음양의 망치", "☯️"], ["하늘과 땅 공장", "🌏"], ["천상의 손", "☁️"], ["천하 엔진", "🏔️"]] },
+  { id: "omni", label: "전지전능", emoji: "👁️", activeBorder: "border-purple-600", activeBg: "bg-gradient-to-r from-purple-100 to-pink-200 dark:from-purple-950 dark:to-pink-950", text: "text-purple-600", items: [["모든 것을 보는 눈", "👁️"], ["전능 공장", "🌟"], ["전지의 손", "🤲"], ["전능 엔진", "💫"]] },
+  { id: "overgod", label: "초신", emoji: "🔱", activeBorder: "border-blue-600", activeBg: "bg-gradient-to-r from-blue-100 to-amber-100 dark:from-blue-950 dark:to-amber-950", text: "text-blue-600", items: [["삼지창", "🔱"], ["신들의 공장", "⛩️"], ["초신의 손", "🫳"], ["초신 엔진", "⚡"]] },
+  { id: "origin", label: "근원", emoji: "🌱", activeBorder: "border-green-600", activeBg: "bg-gradient-to-r from-green-100 to-yellow-100 dark:from-green-950 dark:to-yellow-950", text: "text-green-600", items: [["근원의 씨앗", "🌱"], ["뿌리 공장", "🌳"], ["시작의 손", "👶"], ["근원 엔진", "🫧"]] },
+  { id: "truth", label: "진리", emoji: "📜", activeBorder: "border-orange-500", activeBg: "bg-gradient-to-r from-orange-50 to-yellow-100 dark:from-orange-950 dark:to-yellow-950", text: "text-orange-500", items: [["진리의 두루마리", "📜"], ["지혜의 공장", "📚"], ["깨달음의 손", "💡"], ["진리 엔진", "🔆"]] },
+  { id: "bang", label: "!!!", emoji: "‼️", activeBorder: "border-rose-500", activeBg: "bg-gradient-to-r from-rose-200 via-yellow-100 to-cyan-200 dark:from-rose-950 dark:via-yellow-950 dark:to-cyan-950", text: "animate-pulse bg-gradient-to-r from-rose-500 via-yellow-400 to-cyan-400 bg-clip-text text-transparent", items: [["!", "❗"], ["!!", "‼️"], ["!!!", "💥"], ["모든 것의 끝, !!!!", "🌠"]] },
+] as const;
+
+type HigherTierId = (typeof HIGHER_TIERS)[number]["id"];
+
 type UpgradeTier =
   | "normal" | "advanced" | "legendary" | "mythic" | "transcendent" | "eternal" | "absolute"
-  | "divine" | "primordial" | "infinite" | "absolutist" | "mystery";
+  | "divine" | "primordial" | "infinite" | "absolutist" | "mystery"
+  | HigherTierId;
 
 /** 상점에 보여 줄 등급 순서(낮은 등급부터) */
 const TIER_ORDER: UpgradeTier[] = [
   "normal", "advanced", "legendary", "mythic", "transcendent", "eternal", "absolute",
   "divine", "primordial", "infinite", "absolutist", "mystery",
+  ...HIGHER_TIERS.map((t) => t.id),
 ];
 
 interface Upgrade {
@@ -26,7 +51,15 @@ interface Upgrade {
   tier: UpgradeTier;
 }
 
-const TIER_INFO: Record<UpgradeTier, { label: string; emoji: string; border: string; bg: string; activeBorder: string; activeBg: string; text: string }> = {
+type TierStyle = { label: string; emoji: string; border: string; bg: string; activeBorder: string; activeBg: string; text: string };
+
+const TIER_INFO: Record<UpgradeTier, TierStyle> = {
+  ...(Object.fromEntries(
+    HIGHER_TIERS.map((t) => [
+      t.id,
+      { label: t.label, emoji: t.emoji, border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: t.activeBorder, activeBg: t.activeBg, text: t.text },
+    ]),
+  ) as Record<HigherTierId, TierStyle>),
   normal: { label: "일반", emoji: "⚪", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-blue-300 dark:border-blue-700", activeBg: "bg-blue-50 dark:bg-blue-950/50", text: "text-blue-500" },
   advanced: { label: "고급", emoji: "🟢", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-emerald-400 dark:border-emerald-700", activeBg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-500" },
   legendary: { label: "전설", emoji: "🟣", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-purple-400 dark:border-purple-700", activeBg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-500" },
@@ -109,6 +142,31 @@ const UPGRADES: Upgrade[] = [
   { id: "mystery2", name: "이름 없는 별", emoji: "🌠", desc: "초당 +2Qi 자동 블록", baseCost: 3e24, costMultiplier: 3.0, effect: "autoClick", effectValue: 2e18, tier: "mystery" },
   { id: "mystery3", name: "비밀의 열쇠", emoji: "🗝️", desc: "클릭당 +5Qi 블록", baseCost: 1e25, costMultiplier: 2.9, effect: "clickPower", effectValue: 5e18, tier: "mystery" },
   { id: "mystery4", name: "모든 것의 답", emoji: "👁️‍🗨️", desc: "초당 +10Qi 자동 블록", baseCost: 3e25, costMultiplier: 3.0, effect: "autoClick", effectValue: 1e19, tier: "mystery" },
+  // ??? 위 15등급: ??? 아이템(클릭 1Qi·자동 2Qi·클릭 5Qi·자동 10Qi)을 기준으로 등급마다 힘 10배, 가격 100배
+  ...HIGHER_TIERS.flatMap((t, ti): Upgrade[] => {
+    const power = Math.pow(10, ti + 1);
+    const price = Math.pow(100, ti + 1);
+    const base: { effect: Upgrade["effect"]; value: number; cost: number }[] = [
+      { effect: "clickPower", value: 1e18, cost: 1e24 },
+      { effect: "autoClick", value: 2e18, cost: 3e24 },
+      { effect: "clickPower", value: 5e18, cost: 1e25 },
+      { effect: "autoClick", value: 1e19, cost: 3e25 },
+    ];
+    return base.map((b, k) => {
+      const value = b.value * power;
+      return {
+        id: `${t.id}${k + 1}`,
+        name: t.items[k][0],
+        emoji: t.items[k][1],
+        desc: b.effect === "clickPower" ? `클릭당 +${formatNumber(value)} 블록` : `초당 +${formatNumber(value)} 자동 블록`,
+        baseCost: b.cost * price,
+        costMultiplier: 3,
+        effect: b.effect,
+        effectValue: value,
+        tier: t.id,
+      };
+    });
+  }),
 ];
 
 const BASE_LEVELS: BuildingLevel[] = [
