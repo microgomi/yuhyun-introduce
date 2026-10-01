@@ -27,16 +27,27 @@ const HIGHER_TIERS = [
 
 type HigherTierId = (typeof HIGHER_TIERS)[number]["id"];
 
+// --- !!! 위 30등급 × 5개 = 150개 ---
+// 등급 이름은 "!!! +1" ~ "!!! +30". 색은 위 15등급의 색을 돌려 쓴다. 힘은 등급마다 10배, 가격은 100배.
+const ULTRA_TIER_COUNT = 30;
+type UltraTierId = `ultra${number}`;
+const ULTRA_TIER_IDS: UltraTierId[] = Array.from({ length: ULTRA_TIER_COUNT }, (_, i) => `ultra${i + 1}` as UltraTierId);
+const ULTRA_ADJ = ["찬란한", "궁극의", "전설의", "무한한", "신비한", "영원한", "눈부신", "거대한", "초월한", "빛나는"];
+const ULTRA_NOUN = ["망치", "공장", "손", "엔진", "왕관", "탑", "별", "심장", "날개", "문", "검", "눈", "용", "씨앗", "보석"];
+const ULTRA_EMOJI = ["💫", "🌟", "⚡", "🔥", "💎", "👑", "🌈", "☄️", "🪐", "🔮"];
+
 type UpgradeTier =
   | "normal" | "advanced" | "legendary" | "mythic" | "transcendent" | "eternal" | "absolute"
   | "divine" | "primordial" | "infinite" | "absolutist" | "mystery"
-  | HigherTierId;
+  | HigherTierId
+  | UltraTierId;
 
 /** 상점에 보여 줄 등급 순서(낮은 등급부터) */
 const TIER_ORDER: UpgradeTier[] = [
   "normal", "advanced", "legendary", "mythic", "transcendent", "eternal", "absolute",
   "divine", "primordial", "infinite", "absolutist", "mystery",
   ...HIGHER_TIERS.map((t) => t.id),
+  ...ULTRA_TIER_IDS,
 ];
 
 interface Upgrade {
@@ -60,6 +71,15 @@ const TIER_INFO: Record<UpgradeTier, TierStyle> = {
       { label: t.label, emoji: t.emoji, border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: t.activeBorder, activeBg: t.activeBg, text: t.text },
     ]),
   ) as Record<HigherTierId, TierStyle>),
+  ...(Object.fromEntries(
+    ULTRA_TIER_IDS.map((id, i) => {
+      const look = HIGHER_TIERS[i % HIGHER_TIERS.length];
+      return [
+        id,
+        { label: `!!! +${i + 1}`, emoji: ULTRA_EMOJI[i % ULTRA_EMOJI.length], border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: look.activeBorder, activeBg: look.activeBg, text: look.text },
+      ];
+    }),
+  ) as Record<UltraTierId, TierStyle>),
   normal: { label: "일반", emoji: "⚪", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-blue-300 dark:border-blue-700", activeBg: "bg-blue-50 dark:bg-blue-950/50", text: "text-blue-500" },
   advanced: { label: "고급", emoji: "🟢", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-emerald-400 dark:border-emerald-700", activeBg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-500" },
   legendary: { label: "전설", emoji: "🟣", border: "border-zinc-200 dark:border-zinc-700", bg: "bg-zinc-50 dark:bg-zinc-900", activeBorder: "border-purple-400 dark:border-purple-700", activeBg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-500" },
@@ -164,6 +184,33 @@ const UPGRADES: Upgrade[] = [
         effect: b.effect,
         effectValue: value,
         tier: t.id,
+      };
+    });
+  }),
+  // !!! 위 150개: !!! 등급(10^15배)에서 이어서 등급마다 힘 10배, 가격 100배
+  ...ULTRA_TIER_IDS.flatMap((tier, ti): Upgrade[] => {
+    const power = Math.pow(10, 16 + ti);
+    const price = Math.pow(100, 16 + ti);
+    const base: { effect: Upgrade["effect"]; value: number; cost: number }[] = [
+      { effect: "clickPower", value: 1e18, cost: 1e24 },
+      { effect: "autoClick", value: 2e18, cost: 3e24 },
+      { effect: "clickPower", value: 5e18, cost: 1e25 },
+      { effect: "autoClick", value: 1e19, cost: 3e25 },
+      { effect: "autoClick", value: 2e19, cost: 6e25 },
+    ];
+    return base.map((b, k) => {
+      const n = ti * base.length + k;
+      const value = b.value * power;
+      return {
+        id: `${tier}_${k + 1}`,
+        name: `${ULTRA_ADJ[n % ULTRA_ADJ.length]} ${ULTRA_NOUN[Math.floor(n / ULTRA_ADJ.length) % ULTRA_NOUN.length]}`,
+        emoji: ULTRA_EMOJI[(n * 3) % ULTRA_EMOJI.length],
+        desc: b.effect === "clickPower" ? `클릭당 +${formatNumber(value)} 블록` : `초당 +${formatNumber(value)} 자동 블록`,
+        baseCost: b.cost * price,
+        costMultiplier: 3,
+        effect: b.effect,
+        effectValue: value,
+        tier,
       };
     });
   }),
