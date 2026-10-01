@@ -388,7 +388,7 @@ const COUNTRIES: CountryUpgrade[] = [
 ];
 
 /** 나라 보너스 배율. 표의 clickBonus·autoBonus 에 곱해서 준다. */
-const COUNTRY_POWER = 1000;
+const COUNTRY_POWER = 5000;
 
 /** 나라 카드 설명: "에펠탑!" 부분만 표에서 쓰고 숫자는 실제 보너스로 만든다(배율이 바뀌어도 어긋나지 않게). */
 function countryDesc(country: CountryUpgrade): string {
@@ -429,10 +429,12 @@ interface Pet {
 }
 
 const PET_MAX_LEVEL = 1000;
+/** 모두 입양하기 버튼 한 번에 펫마다 올리는 레벨 */
+const PET_BULK_LEVELS = 50;
 /** 레벨이 1000까지 가므로 비용은 1.15배씩만 오른다(3배씩이면 금방 계산할 수 없는 수가 된다). */
 const PET_COST_MULTIPLIER = 1.15;
 /** 펫 능력 배율. 표의 perLevel 에 곱한다. */
-const PET_POWER = 1000;
+const PET_POWER = 5000;
 
 const PETS: Pet[] = [
   { id: "dog", name: "멍멍이", emoji: "🐶", job: "벽돌을 물어 와요", power: "auto", perLevel: 100, baseCost: 1e3 },
@@ -531,6 +533,7 @@ export default function BuildingPage() {
   const [autoClickLevel, setAutoClickLevel] = useState(0);
   const [autoClickOn, setAutoClickOn] = useState(true);
   const [petLevels, setPetLevels] = useState<Record<string, number>>({});
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
   /** 자동 클릭 손가락의 위치(%). 누를 때마다 옮겨 간다. */
   const [tapAt, setTapAt] = useState<{ x: number; y: number; n: number } | null>(null);
   const nextEffectId = useRef(0);
@@ -565,7 +568,7 @@ export default function BuildingPage() {
       setBlocks(s.blocks); setTotalBlocks(s.totalBlocks);
       setClickPower(s.clickPower); setAutoPerSec(s.autoPerSec);
       setUpgradeLevels(s.upgradeLevels); setOwnedCountries(s.ownedCountries);
-      // 나라 보너스가 1000배로 바뀌기 전에 산 나라는, 차이만큼 한 번 더 얹어 준다.
+      // 나라 보너스 배율이 지금보다 낮을 때 산 나라는, 차이만큼 한 번 더 얹어 준다(1 → 1000 → 5000).
       const oldPower = s.countryPower ?? 1;
       if (oldPower < COUNTRY_POWER) {
         const owned = COUNTRIES.filter((c) => s.ownedCountries[c.id]);
@@ -709,6 +712,40 @@ export default function BuildingPage() {
     if (blocks < cost) return;
     setBlocks((prev) => prev - cost);
     setPetLevels((prev) => ({ ...prev, [pet.id]: lv + 1 }));
+  };
+
+  /**
+   * 모두 입양하기: 모든 펫을 한 번에 최대 PET_BULK_LEVELS 레벨씩 올린다(아직 없는 펫은 입양).
+   * 블록이 모자라면 살 수 있는 만큼만 산다. 한 레벨씩 돌아가며 사야 비싼 펫만 빠지지 않고 골고루 오른다.
+   */
+  const adoptAll = () => {
+    let remaining = blocks;
+    const next = { ...petLevels };
+    let bought = 0;
+    const touched = new Set<string>();
+    for (let step = 0; step < PET_BULK_LEVELS; step++) {
+      let any = false;
+      for (const pet of PETS) {
+        const lv = next[pet.id] || 0;
+        if (lv >= PET_MAX_LEVEL) continue;
+        const cost = petCost(pet, lv);
+        if (remaining < cost) continue;
+        remaining -= cost;
+        next[pet.id] = lv + 1;
+        bought++;
+        touched.add(pet.id);
+        any = true;
+      }
+      if (!any) break;
+    }
+    if (bought === 0) {
+      setBulkResult("블록이 모자라서 아무 펫도 올리지 못했어요");
+      return;
+    }
+    const spent = blocks - remaining;
+    setBlocks((prev) => prev - spent);
+    setPetLevels(next);
+    setBulkResult(`펫 ${touched.size}마리, 총 +${formatNumber(bought)}레벨! (🧱 ${formatNumber(spent)} 사용)`);
   };
 
   const ownedPets = PETS.filter((p) => (petLevels[p.id] || 0) > 0);
@@ -925,12 +962,21 @@ export default function BuildingPage() {
 
             {/* 같이 건축하는 펫 */}
             <div className="mt-4 rounded-2xl border border-pink-200 bg-white p-4 shadow-sm dark:border-pink-900 dark:bg-zinc-900">
-              <p className="mb-3 font-bold text-zinc-900 dark:text-white">
-                🐾 같이 건축하는 펫{" "}
-                <span className="text-xs font-normal text-zinc-500">
-                  ({ownedPets.length}/{PETS.length}마리 · 펫마다 최대 Lv.{PET_MAX_LEVEL})
-                </span>
-              </p>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="font-bold text-zinc-900 dark:text-white">
+                  🐾 같이 건축하는 펫{" "}
+                  <span className="text-xs font-normal text-zinc-500">
+                    ({ownedPets.length}/{PETS.length}마리 · 펫마다 최대 Lv.{PET_MAX_LEVEL})
+                  </span>
+                </p>
+                <button
+                  onClick={adoptAll}
+                  className="rounded-xl bg-gradient-to-r from-pink-500 to-amber-400 px-4 py-2 text-sm font-black text-white shadow hover:shadow-lg active:scale-95"
+                >
+                  🐾 모두 입양하기 (+{PET_BULK_LEVELS}레벨씩)
+                </button>
+              </div>
+              {bulkResult && <p className="mb-3 text-center text-sm font-bold text-pink-600 dark:text-pink-400">{bulkResult}</p>}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {PETS.map((pet) => {
                   const lv = petLevels[pet.id] || 0;
