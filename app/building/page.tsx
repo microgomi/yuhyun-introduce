@@ -322,13 +322,26 @@ const MEGA_LEVELS: BuildingLevel[] = Array.from({ length: MEGA_LEVEL_COUNT }, (_
 // 1.01배씩 늘어난다(마지막 약 4e30). 1% 차이라 네 자리까지 남겨야 이웃 단계가 겹치지 않는다.
 const GIGA_LEVEL_COUNT = 1000;
 const GIGA_LEVEL_GROWTH = 1.01;
-const CYCLE_MARKS = ["", " Ⅱ", " Ⅲ", " Ⅳ", " Ⅴ"];
+/** 이름이 한 바퀴(테마×건물 400개)를 돌 때마다 붙이는 로마 숫자. 0 바퀴째는 아무것도 붙이지 않는다. */
+function cycleMark(cycle: number): string {
+  if (cycle === 0) return "";
+  const table: [number, string][] = [[50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+  let n = cycle + 1;
+  let out = "";
+  for (const [v, r] of table) {
+    while (n >= v) {
+      out += r;
+      n -= v;
+    }
+  }
+  return ` ${out}`;
+}
 
 const GIGA_LEVELS: BuildingLevel[] = Array.from({ length: GIGA_LEVEL_COUNT }, (_, i) => {
   const j = MEGA_LEVEL_COUNT + i; // 앞 386단계에 이어서 이름을 돈다
   const perCycle = MEGA_THEMES.length * MEGA_STRUCTURES.length;
   const theme = MEGA_THEMES[Math.floor(j / MEGA_STRUCTURES.length) % MEGA_THEMES.length];
-  const mark = CYCLE_MARKS[Math.min(CYCLE_MARKS.length - 1, Math.floor(j / perCycle))];
+  const mark = cycleMark(Math.floor(j / perCycle));
   const last = i === GIGA_LEVEL_COUNT - 1;
   return {
     name: last ? "진짜 최종 · 끝없는 건축의 신" : `${theme.name} ${MEGA_STRUCTURES[j % MEGA_STRUCTURES.length]}${mark}`,
@@ -338,7 +351,37 @@ const GIGA_LEVELS: BuildingLevel[] = Array.from({ length: GIGA_LEVEL_COUNT }, (_
   };
 });
 
-const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS, ...MEGA_LEVELS, ...GIGA_LEVELS];
+// --- 그다음 10000단계(총 11510단계) ---
+// 1.005배씩 늘어난다(마지막 약 2e52). 0.5% 차이라 다섯 자리까지 남겨야 이웃 단계가 겹치지 않는다.
+const TERA_LEVEL_COUNT = 10000;
+const TERA_LEVEL_GROWTH = 1.005;
+
+const TERA_LEVELS: BuildingLevel[] = Array.from({ length: TERA_LEVEL_COUNT }, (_, i) => {
+  const j = MEGA_LEVEL_COUNT + GIGA_LEVEL_COUNT + i; // 앞 단계들에 이어서 이름을 돈다
+  const perCycle = MEGA_THEMES.length * MEGA_STRUCTURES.length;
+  const theme = MEGA_THEMES[Math.floor(j / MEGA_STRUCTURES.length) % MEGA_THEMES.length];
+  const last = i === TERA_LEVEL_COUNT - 1;
+  return {
+    name: last ? "끝없는 끝 · 건축 그 너머" : `${theme.name} ${MEGA_STRUCTURES[j % MEGA_STRUCTURES.length]}${cycleMark(Math.floor(j / perCycle))}`,
+    emoji: last ? "♾️" : theme.emojis[j % theme.emojis.length],
+    blocksNeeded: roundNice(GIGA_LEVELS[GIGA_LEVELS.length - 1].blocksNeeded * Math.pow(TERA_LEVEL_GROWTH, i + 1), 5),
+    color: last ? "from-black via-fuchsia-500 to-white" : theme.color,
+  };
+});
+
+const BUILDING_LEVELS: BuildingLevel[] = [...BASE_LEVELS, ...EXTRA_LEVELS, ...MEGA_LEVELS, ...GIGA_LEVELS, ...TERA_LEVELS];
+
+/** 총 블록으로 도달한 마지막 단계의 번호. 단계가 1만 개가 넘어서 처음부터 훑지 않고 반씩 나눠 찾는다. */
+function levelIndexFor(totalBlocks: number): number {
+  let lo = 0;
+  let hi = BUILDING_LEVELS.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (BUILDING_LEVELS[mid].blocksNeeded <= totalBlocks) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
 
 interface CountryUpgrade {
   id: string;
@@ -468,6 +511,17 @@ const AUTO_CLICK_LEVELS: { cps: number; cost: number }[] = [
   { cps: 30, cost: 5e9 },
   { cps: 40, cost: 5e10 },
   { cps: 50, cost: 5e11 },
+  // 11~20단계
+  { cps: 75, cost: 5e12 },
+  { cps: 100, cost: 5e13 },
+  { cps: 150, cost: 5e14 },
+  { cps: 200, cost: 5e15 },
+  { cps: 300, cost: 5e16 },
+  { cps: 500, cost: 5e17 },
+  { cps: 750, cost: 5e18 },
+  { cps: 1000, cost: 5e19 },
+  { cps: 1500, cost: 5e20 },
+  { cps: 2000, cost: 5e21 },
 ];
 const AUTO_CLICK_TICK_MS = 250;
 
@@ -667,8 +721,9 @@ export default function BuildingPage() {
   }, [loaded, blocks, totalBlocks, clickPower, autoPerSec, upgradeLevels, ownedCountries, autoClickLevel, autoClickOn, petLevels, effectiveAuto]);
 
   // Current building level
-  const currentLevel = [...BUILDING_LEVELS].reverse().find((l) => totalBlocks >= l.blocksNeeded) || BUILDING_LEVELS[0];
-  const nextLevel = BUILDING_LEVELS[BUILDING_LEVELS.indexOf(currentLevel) + 1] || null;
+  const levelIndex = levelIndexFor(totalBlocks);
+  const currentLevel = BUILDING_LEVELS[levelIndex];
+  const nextLevel = BUILDING_LEVELS[levelIndex + 1] || null;
   const progress = nextLevel
     ? ((totalBlocks - currentLevel.blocksNeeded) / (nextLevel.blocksNeeded - currentLevel.blocksNeeded)) * 100
     : 100;
@@ -858,7 +913,7 @@ export default function BuildingPage() {
                 <p className="font-bold text-zinc-900 dark:text-white">
                   {currentLevel.name}{" "}
                   <span className="text-xs font-semibold text-zinc-400">
-                    {BUILDING_LEVELS.indexOf(currentLevel) + 1}단계 / {BUILDING_LEVELS.length}
+                    {(levelIndex + 1).toLocaleString()}단계 / {BUILDING_LEVELS.length.toLocaleString()}
                   </span>
                 </p>
                 <p className="text-xs text-zinc-400">총 {formatNumber(totalBlocks)}블록 건축</p>
